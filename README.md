@@ -34,7 +34,7 @@ El plano está fijo mientras se visualiza. En **Cámaras y zonas**, cualquiera d
 4. **Guardar cambios:** persiste el objeto; **Cancelar** descarta el borrador. Se confirma antes de borrar o abandonar cambios pendientes.
 5. **Eliminar:** cada elemento de la lista lateral lleva su propia ✕ para borrarlo sin abrirlo, y el formulario mantiene **✕ Eliminar elemento** para el que estés editando. Ambos piden confirmación y viajan con el número de revisión, así que si otro navegador lo cambió antes el servidor responde 409 en vez de borrar a ciegas.
 
-La migración `003` sitúa las zonas de demostración sobre un local comercial real del plano (2 381 m²) y su acera de 7 m, en metros del plano. Los objetos que dibujas se guardan aparte, en `map_objects`, WGS84/SRID 4326, mediante la migración aditiva `002`. El servidor rechaza polígonos cruzados, más de 100 vértices, coordenadas fuera del entorno del aeropuerto y revisiones obsoletas. El nivel habilitado es el 3.
+El seed `backend/seeds/003_zones.sql` sitúa las zonas de demostración sobre un local comercial real del plano (2 381 m²) y su acera de 7 m, en metros del plano. Los objetos que dibujas se guardan aparte, en `map_objects` (`backend/migrations/008_create_map_objects.sql`), WGS84/SRID 4326. El servidor rechaza polígonos cruzados, más de 100 vértices, coordenadas fuera del entorno del aeropuerto y revisiones obsoletas. El nivel habilitado es el 3.
 
 ## Cámara USB o portátil
 

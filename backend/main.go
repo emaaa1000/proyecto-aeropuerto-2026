@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations/*.sql seeds/*.sql
 var migrations embed.FS
 
 // Point uses the same local coordinate reference system as the airport plan.
@@ -63,24 +63,30 @@ func (a *App) migrate(ctx context.Context) error {
 	if _, err = tx.Exec(ctx, "CREATE TABLE IF NOT EXISTS schema_migrations(version text PRIMARY KEY)"); err != nil {
 		return err
 	}
-	for _, file := range []string{"001_initial", "002_map_objects", "003_plan_zones", "004_historical_replay", "005_aerovision_schema"} {
-		version := file[:3]
-		var exists bool
-		if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", version).Scan(&exists); err != nil {
-			return err
-		}
-		if exists {
-			continue
-		}
-		sql, readErr := migrations.ReadFile("migrations/" + file + ".sql")
+	for _, dir := range []string{"migrations", "seeds"} {
+		entries, readErr := migrations.ReadDir(dir)
 		if readErr != nil {
 			return readErr
 		}
-		if _, err = tx.Exec(ctx, string(sql)); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES($1)", version); err != nil {
-			return err
+		for _, entry := range entries {
+			version := dir + "/" + entry.Name()
+			var exists bool
+			if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)", version).Scan(&exists); err != nil {
+				return err
+			}
+			if exists {
+				continue
+			}
+			sql, readErr := migrations.ReadFile(version)
+			if readErr != nil {
+				return readErr
+			}
+			if _, err = tx.Exec(ctx, string(sql)); err != nil {
+				return fmt.Errorf("%s: %w", version, err)
+			}
+			if _, err = tx.Exec(ctx, "INSERT INTO schema_migrations VALUES($1)", version); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit(ctx)
