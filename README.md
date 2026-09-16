@@ -2,7 +2,13 @@
 
 Demostración para Lima Airport Partners (Aeropuerto Internacional Jorge Chávez). Aplicación Go + PostgreSQL/PostGIS + Vue 3 en Docker. El plano se sirve como SVG local derivado de la geometría real del nivel 3, dibujado con el norte hacia arriba; el control en vivo lo muestra girado a horizontal y el editor en vertical. No usa Google Maps, MapLibre, iframes ni mosaicos externos durante la visualización.
 
-Repositorio: https://github.com/emaaa1000/proyecto-aeropuerto-2026
+## Enlaces del proyecto
+
+- **Aplicación en el servidor:** http://35.239.224.191/mapa
+- **Presentación Canva:** https://canva.link/s9381tjj12znjbi
+- **Informe:** https://www.overleaf.com/4988787614zrfjthnvgdhr#5a9571
+- **Carpeta de Drive:** https://drive.google.com/drive/folders/1OH2wUcujzm-cPwITiiukz6uNG6pCSm8Q
+- **Repositorio:** https://github.com/emaaa1000/proyecto-aeropuerto-2026
 
 ## Ejecutar
 
