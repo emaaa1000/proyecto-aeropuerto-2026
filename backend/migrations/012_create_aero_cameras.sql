@@ -1,9 +1,21 @@
 CREATE TABLE IF NOT EXISTS aero_cameras (
-    camera_id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
-    x DOUBLE PRECISION NOT NULL,
-    y DOUBLE PRECISION NOT NULL,
-    angle_deg REAL NOT NULL,
-    active BOOLEAN DEFAULT TRUE,
-    CONSTRAINT chk_camera_angle CHECK (angle_deg >= 0 AND angle_deg < 360)
+    camera_id VARCHAR(30) PRIMARY KEY,
+    name VARCHAR(80) NOT NULL,
+    floor_id INTEGER NOT NULL DEFAULT 3 REFERENCES floors(id),
+    stream_uri TEXT,
+    fps REAL CHECK (fps IS NULL OR fps > 0),
+    width_px INTEGER CHECK (width_px IS NULL OR width_px > 0),
+    height_px INTEGER CHECK (height_px IS NULL OR height_px > 0),
+    timestamp_offset_s REAL NOT NULL DEFAULT 0,
+    mode VARCHAR(20) NOT NULL DEFAULT 'VISUAL_TEMPORAL' CHECK (mode IN ('VISUAL_TEMPORAL', 'CALIBRADO')),
+    homography DOUBLE PRECISION[],
+    calib_error_m REAL CHECK (calib_error_m IS NULL OR calib_error_m >= 0),
+    position geometry(Point, 0),
+    angle_deg REAL CHECK (angle_deg IS NULL OR (angle_deg >= 0 AND angle_deg < 360)),
+    coverage geometry(Polygon, 0),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_h_shape CHECK (homography IS NULL OR cardinality(homography) = 9),
+    CONSTRAINT chk_calibrated CHECK (mode <> 'CALIBRADO' OR (homography IS NOT NULL AND calib_error_m IS NOT NULL)),
+    CONSTRAINT chk_coverage CHECK (coverage IS NULL OR ST_IsValid(coverage))
 );

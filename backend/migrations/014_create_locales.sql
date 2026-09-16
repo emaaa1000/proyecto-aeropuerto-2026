@@ -2,5 +2,5 @@ CREATE TABLE IF NOT EXISTS locales (
     local_id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     category VARCHAR(50),
-    active BOOLEAN DEFAULT TRUE
+    active BOOLEAN NOT NULL DEFAULT TRUE
 );
