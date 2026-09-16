@@ -2,6 +2,8 @@
 
 Demostración para Lima Airport Partners (Aeropuerto Internacional Jorge Chávez). Aplicación Go + PostgreSQL/PostGIS + Vue 3 en Docker. El plano se sirve como SVG local derivado de la geometría real del nivel 3, dibujado con el norte hacia arriba; el control en vivo lo muestra girado a horizontal y el editor en vertical. No usa Google Maps, MapLibre, iframes ni mosaicos externos durante la visualización.
 
+Repositorio: https://github.com/emaaa1000/proyecto-aeropuerto-2026
+
 ## Ejecutar
 
 ```bash
@@ -68,6 +70,12 @@ bash scripts/test-integration.sh
 ```
 
 El script usa Docker, crea `aeropuerto_test` y solo limpia las tablas de esa base. Si cambias la contraseña, exporta `DB_PASSWORD` con el mismo valor antes de ejecutarlo. La prueba verifica una visita de 27 segundos, 50% de captación para dos personas, una sola entrada/salida, rechazo de filtros inválidos y censura tras un reinicio.
+
+## Modelo y archivos de demostración
+
+La carpeta `Modelo/` contiene el notebook de multitracking de LAP01, sus configuraciones, pesos locales, videos de entrada y resultados generados. Estos archivos sirven para reproducir y documentar la demostración; la aplicación web continúa consumiendo el histórico almacenado en PostgreSQL descrito en la sección de insights.
+
+Para abrir el notebook, utiliza un entorno Python con las dependencias de visión por computador correspondientes y ejecuta `Modelo/LAP01_Multitracking.ipynb`. Los archivos de video y pesos pueden requerir espacio considerable.
 
 ## API
 
