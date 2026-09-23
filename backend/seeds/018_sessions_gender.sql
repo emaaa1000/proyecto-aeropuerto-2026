@@ -1,0 +1,48 @@
+-- Genero sintetico (estimacion visual con incertidumbre, igual que
+-- identities.gender_estimate) para las sesiones ya sembradas en
+-- 008_sessions.sql y 014_sessions_foodcourt.sql.
+UPDATE sessions SET gender = v.gender
+FROM (VALUES
+    ('trip-001', 'HOMBRE'),
+    ('trip-002', 'HOMBRE'),
+    ('trip-003', 'HOMBRE'),
+    ('trip-004', 'HOMBRE'),
+    ('trip-005', 'MUJER'),
+    ('trip-006', 'HOMBRE'),
+    ('trip-007', 'HOMBRE'),
+    ('trip-008', 'MUJER'),
+    ('trip-009', 'MUJER'),
+    ('trip-010', 'SIN_DETERMINAR'),
+    ('trip-011', 'MUJER'),
+    ('trip-012', 'HOMBRE'),
+    ('trip-013', 'MUJER'),
+    ('trip-014', 'HOMBRE'),
+    ('trip-015', 'SIN_DETERMINAR'),
+    ('trip-016', 'HOMBRE'),
+    ('trip-017', 'HOMBRE'),
+    ('trip-018', 'MUJER'),
+    ('trip-019', 'HOMBRE'),
+    ('trip-020', 'MUJER'),
+    ('trip-021', 'MUJER'),
+    ('trip-022', 'HOMBRE'),
+    ('trip-023', 'SIN_DETERMINAR'),
+    ('trip-024', 'MUJER'),
+    ('trip-025', 'MUJER'),
+    ('trip-026', 'MUJER'),
+    ('trip-027', 'HOMBRE'),
+    ('trip-028', 'HOMBRE'),
+    ('trip-029', 'HOMBRE'),
+    ('trip-030', 'HOMBRE'),
+    ('trip-031', 'SIN_DETERMINAR'),
+    ('trip-032', 'MUJER'),
+    ('trip-033', 'MUJER'),
+    ('trip-034', 'SIN_DETERMINAR'),
+    ('trip-035', 'MUJER'),
+    ('trip-036', 'SIN_DETERMINAR'),
+    ('trip-037', 'HOMBRE'),
+    ('trip-038', 'HOMBRE'),
+    ('trip-039', 'SIN_DETERMINAR'),
+    ('trip-040', 'HOMBRE'),
+    ('trip-041', 'MUJER')
+) AS v(id, gender)
+WHERE sessions.id = v.id;

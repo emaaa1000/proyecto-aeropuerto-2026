@@ -172,6 +172,16 @@ func zoneParam(r *http.Request) *string {
 	return &zone
 }
 
+// genderParam limita a un género estimado (HOMBRE/MUJER/SIN_DETERMINAR).
+// nil cuando no se pide ninguno, igual que zoneParam.
+func genderParam(r *http.Request) *string {
+	gender := strings.TrimSpace(r.URL.Query().Get("gender"))
+	if gender == "" {
+		return nil
+	}
+	return &gender
+}
+
 func replayLimit(r *http.Request, fallback, maximum int) (int, error) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		limit, err := strconv.Atoi(raw)
@@ -196,7 +206,8 @@ func (a *App) replay(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	tracks, err := a.replayTracks(ctx, window, limit)
+	gender := genderParam(r)
+	tracks, err := a.replayTracks(ctx, window, limit, gender)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "No se pudieron reconstruir las trayectorias")
 		return
@@ -211,7 +222,7 @@ func (a *App) replay(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, "No se pudieron cargar las zonas")
 		return
 	}
-	flows, err := a.flows(ctx, window)
+	flows, err := a.flows(ctx, window, gender)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "No se pudieron cargar los flujos entre zonas")
 		return
@@ -222,14 +233,14 @@ func (a *App) replay(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *App) replayTracks(ctx context.Context, window historicalRange, limit int) ([]replayTrack, error) {
+func (a *App) replayTracks(ctx context.Context, window historicalRange, limit int, gender *string) ([]replayTrack, error) {
 	// Keep endpoints responsive on long recordings while retaining first, last
 	// and evenly distributed real observations of each global_id.
 	rows, err := a.db.Query(ctx, `
 WITH candidate AS (
   SELECT p.session_id, min(p.observed_at) AS first_seen
-  FROM positions p
-  WHERE p.observed_at >= $1 AND p.observed_at <= $2
+  FROM positions p JOIN sessions se ON se.id=p.session_id
+  WHERE p.observed_at >= $1 AND p.observed_at <= $2 AND ($5::text IS NULL OR se.gender=$5)
   GROUP BY p.session_id
   ORDER BY first_seen, p.session_id
   LIMIT $3
@@ -247,7 +258,7 @@ SELECT s.session_id, s.observed_at, ST_X(s.geom), ST_Y(s.geom), COALESCE(s.camer
        COALESCE((SELECT z.id FROM zones z WHERE z.floor_id=$4 AND ST_Covers(z.geom,s.geom)
                  ORDER BY ST_Area(z.geom) ASC, z.id LIMIT 1),'')
 FROM sampled s
-ORDER BY s.session_id, s.observed_at`, window.From, window.To, limit, window.Floor)
+ORDER BY s.session_id, s.observed_at`, window.From, window.To, limit, window.Floor, gender)
 	if err != nil {
 		return nil, err
 	}
@@ -323,8 +334,8 @@ FROM zones WHERE floor_id=$1 ORDER BY name,id`, floor)
 	return result, rows.Err()
 }
 
-func (a *App) routes(ctx context.Context, window historicalRange, limit int) ([]route, error) {
-	tracks, err := a.replayTracks(ctx, window, limit)
+func (a *App) routes(ctx context.Context, window historicalRange, limit int, gender *string) ([]route, error) {
+	tracks, err := a.replayTracks(ctx, window, limit, gender)
 	if err != nil {
 		return nil, err
 	}
@@ -339,16 +350,17 @@ func (a *App) routes(ctx context.Context, window historicalRange, limit int) ([]
 	return result, nil
 }
 
-func (a *App) heat(ctx context.Context, window historicalRange) ([]heatCell, error) {
+func (a *App) heat(ctx context.Context, window historicalRange, gender *string) ([]heatCell, error) {
 	rows, err := a.db.Query(ctx, `
 WITH weighted AS (
   SELECT geom, LEAST(30, GREATEST(0, EXTRACT(EPOCH FROM lead(observed_at) OVER
     (PARTITION BY session_id ORDER BY observed_at)-observed_at))) AS weight
-  FROM positions WHERE observed_at >= $1 AND observed_at <= $2
+  FROM positions p JOIN sessions se ON se.id=p.session_id
+  WHERE observed_at >= $1 AND observed_at <= $2 AND ($3::text IS NULL OR se.gender=$3)
 )
 SELECT floor(ST_X(geom)/8)*8+4, floor(ST_Y(geom)/8)*8+4, sum(weight)::float8
 FROM weighted WHERE weight IS NOT NULL
-GROUP BY 1,2 ORDER BY 3 DESC LIMIT 1200`, window.From, window.To)
+GROUP BY 1,2 ORDER BY 3 DESC LIMIT 1200`, window.From, window.To, gender)
 	if err != nil {
 		return nil, err
 	}
@@ -364,18 +376,19 @@ GROUP BY 1,2 ORDER BY 3 DESC LIMIT 1200`, window.From, window.To)
 	return result, rows.Err()
 }
 
-func (a *App) flows(ctx context.Context, window historicalRange) ([]zoneFlow, error) {
+func (a *App) flows(ctx context.Context, window historicalRange, gender *string) ([]zoneFlow, error) {
 	rows, err := a.db.Query(ctx, `
 WITH ordered AS (
   SELECT e.session_id,e.zone_id AS origin,
          lead(e.zone_id) OVER (PARTITION BY e.session_id ORDER BY e.observed_at,e.id) AS destination
-  FROM events e JOIN zones z ON z.id=e.zone_id
+  FROM events e JOIN zones z ON z.id=e.zone_id JOIN sessions se ON se.id=e.session_id
   WHERE z.floor_id=$3 AND e.observed_at >= $1 AND e.observed_at <= $2
     AND upper(e.kind) IN ('ENTER','RETURN','QUEUE','PASS_BY')
+    AND ($4::text IS NULL OR se.gender=$4)
 )
 SELECT origin,destination,count(DISTINCT session_id)::int
 FROM ordered WHERE destination IS NOT NULL AND destination<>origin
-GROUP BY origin,destination ORDER BY 3 DESC,1,2`, window.From, window.To, window.Floor)
+GROUP BY origin,destination ORDER BY 3 DESC,1,2`, window.From, window.To, window.Floor, gender)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +429,7 @@ func (a *App) replayMetrics(w http.ResponseWriter, r *http.Request) {
 			at = window.To
 		}
 	}
-	metrics, err := a.metricsAt(ctx, window, at, zoneParam(r))
+	metrics, err := a.metricsAt(ctx, window, at, zoneParam(r), genderParam(r))
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "No se pudieron calcular las métricas")
 		return
@@ -424,22 +437,24 @@ func (a *App) replayMetrics(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, metrics)
 }
 
-func (a *App) metricsAt(ctx context.Context, window historicalRange, at time.Time, zone *string) (replayMetrics, error) {
+func (a *App) metricsAt(ctx context.Context, window historicalRange, at time.Time, zone *string, gender *string) (replayMetrics, error) {
 	metrics := replayMetrics{At: at, Zones: []zoneMetric{}}
 	if zone != nil {
 		metrics.ZoneID = *zone
 	}
 	if err := a.db.QueryRow(ctx, `
 SELECT count(*) FROM (
- SELECT session_id FROM positions WHERE observed_at >= $1 AND observed_at <= $2
- GROUP BY session_id HAVING min(observed_at) <= $3 AND max(observed_at) >= $3
-) active`, window.From, window.To, at).Scan(&metrics.Active); err != nil {
+ SELECT session_id FROM positions p JOIN sessions se ON se.id=p.session_id
+ WHERE p.observed_at >= $1 AND p.observed_at <= $2 AND ($4::text IS NULL OR se.gender=$4)
+ GROUP BY session_id HAVING min(p.observed_at) <= $3 AND max(p.observed_at) >= $3
+) active`, window.From, window.To, at, gender).Scan(&metrics.Active); err != nil {
 		return metrics, err
 	}
 	rows, err := a.db.Query(ctx, `
 WITH active AS (
- SELECT session_id FROM positions WHERE observed_at >= $1 AND observed_at <= $2
- GROUP BY session_id HAVING min(observed_at) <= $3 AND max(observed_at) >= $3
+ SELECT session_id FROM positions p JOIN sessions se ON se.id=p.session_id
+ WHERE p.observed_at >= $1 AND p.observed_at <= $2 AND ($5::text IS NULL OR se.gender=$5)
+ GROUP BY session_id HAVING min(p.observed_at) <= $3 AND max(p.observed_at) >= $3
 ), last_position AS (
  SELECT DISTINCT ON (p.session_id) p.session_id,p.geom
  FROM positions p JOIN active a ON a.session_id=p.session_id
@@ -448,7 +463,7 @@ WITH active AS (
 )
 SELECT z.id,count(lp.session_id)::int,ST_Area(z.geom)
 FROM zones z LEFT JOIN last_position lp ON ST_Covers(z.geom,lp.geom)
-WHERE z.floor_id=$4 GROUP BY z.id,z.geom ORDER BY z.id`, window.From, window.To, at, window.Floor)
+WHERE z.floor_id=$4 GROUP BY z.id,z.geom ORDER BY z.id`, window.From, window.To, at, window.Floor, gender)
 	if err != nil {
 		return metrics, err
 	}
@@ -479,28 +494,30 @@ WHERE z.floor_id=$4 GROUP BY z.id,z.geom ORDER BY z.id`, window.From, window.To,
 			}
 		}
 	}
-	if err = a.db.QueryRow(ctx, `SELECT count(*) FROM visits
-WHERE entered_at >= $1 AND entered_at <= $2 AND ($3::text IS NULL OR zone_id=$3)`,
-		window.From, at, zone).Scan(&metrics.Visits); err != nil {
+	if err = a.db.QueryRow(ctx, `SELECT count(*) FROM visits v JOIN sessions se ON se.id=v.session_id
+WHERE entered_at >= $1 AND entered_at <= $2 AND ($3::text IS NULL OR zone_id=$3)
+  AND ($4::text IS NULL OR se.gender=$4)`,
+		window.From, at, zone, gender).Scan(&metrics.Visits); err != nil {
 		return metrics, err
 	}
-	if err = a.db.QueryRow(ctx, `SELECT count(*) FROM events
+	if err = a.db.QueryRow(ctx, `SELECT count(*) FROM events e JOIN sessions se ON se.id=e.session_id
 WHERE observed_at >= $1 AND observed_at <= $2 AND upper(kind)='PASS_BY'
-  AND ($3::text IS NULL OR zone_id=$3)`, window.From, at, zone).Scan(&metrics.PassBy); err != nil {
+  AND ($3::text IS NULL OR zone_id=$3) AND ($4::text IS NULL OR se.gender=$4)`, window.From, at, zone, gender).Scan(&metrics.PassBy); err != nil {
 		return metrics, err
 	}
 	if err = a.db.QueryRow(ctx, `SELECT avg(EXTRACT(EPOCH FROM LEAST(COALESCE(exited_at,$2),$2)-entered_at))
-FROM visits WHERE entered_at >= $1 AND entered_at <= $2
+FROM visits v JOIN sessions se ON se.id=v.session_id WHERE entered_at >= $1 AND entered_at <= $2
   AND (exited_at IS NULL OR exited_at >= entered_at)
-  AND ($3::text IS NULL OR zone_id=$3)`, window.From, at, zone).Scan(&metrics.DwellSecond); err != nil {
+  AND ($3::text IS NULL OR zone_id=$3) AND ($4::text IS NULL OR se.gender=$4)`, window.From, at, zone, gender).Scan(&metrics.DwellSecond); err != nil {
 		return metrics, err
 	}
 	if err = a.db.QueryRow(ctx, `
 WITH cohort AS (
  SELECT e.session_id,min(e.observed_at) AS first_exposure
- FROM events e JOIN zones z ON z.id=e.zone_id
+ FROM events e JOIN zones z ON z.id=e.zone_id JOIN sessions se ON se.id=e.session_id
  WHERE e.observed_at >= $1 AND e.observed_at <= $2
    AND (upper(e.kind)='PASS_BY' OR z.kind='front')
+   AND ($4::text IS NULL OR se.gender=$4)
  GROUP BY e.session_id
 )
 SELECT count(*),count(*) FILTER (WHERE EXISTS (
@@ -508,7 +525,7 @@ SELECT count(*),count(*) FILTER (WHERE EXISTS (
  WHERE v.session_id=c.session_id AND v.entered_at >= c.first_exposure
    AND v.entered_at <= LEAST(c.first_exposure+interval '2 minutes',$2)
    AND (($3::text IS NULL AND z.kind='shop') OR v.zone_id=$3)
-)) FROM cohort c`, window.From, at, zone).Scan(&metrics.Exposed, &metrics.Captured); err != nil {
+)) FROM cohort c`, window.From, at, zone, gender).Scan(&metrics.Exposed, &metrics.Captured); err != nil {
 		return metrics, err
 	}
 	if metrics.Exposed > 0 {
@@ -527,16 +544,18 @@ func (a *App) insights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	zone := zoneParam(r)
-	metrics, err := a.metricsAt(ctx, window, window.To, zone)
+	gender := genderParam(r)
+	metrics, err := a.metricsAt(ctx, window, window.To, zone, gender)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "No se pudieron calcular los indicadores")
 		return
 	}
 	var unique, complete, censored int
 	var through *time.Time
-	if err = a.db.QueryRow(ctx, `SELECT count(DISTINCT session_id),count(*) FILTER(WHERE status='complete'),count(*) FILTER(WHERE status='censored')
-FROM visits WHERE entered_at >= $1 AND entered_at <= $2 AND ($3::text IS NULL OR zone_id=$3)`,
-		window.From, window.To, zone).Scan(&unique, &complete, &censored); err != nil {
+	if err = a.db.QueryRow(ctx, `SELECT count(DISTINCT v.session_id),count(*) FILTER(WHERE v.status='complete'),count(*) FILTER(WHERE v.status='censored')
+FROM visits v JOIN sessions se ON se.id=v.session_id
+WHERE v.entered_at >= $1 AND v.entered_at <= $2 AND ($3::text IS NULL OR v.zone_id=$3) AND ($4::text IS NULL OR se.gender=$4)`,
+		window.From, window.To, zone, gender).Scan(&unique, &complete, &censored); err != nil {
 		fail(w, http.StatusServiceUnavailable, "No se pudieron consultar las visitas")
 		return
 	}
@@ -544,9 +563,9 @@ FROM visits WHERE entered_at >= $1 AND entered_at <= $2 AND ($3::text IS NULL OR
 		fail(w, http.StatusServiceUnavailable, "No se pudo consultar la actualización")
 		return
 	}
-	rows, err := a.db.Query(ctx, `SELECT date_trunc('minute',entered_at),count(*) FROM visits
-WHERE entered_at >= $1 AND entered_at <= $2 AND ($3::text IS NULL OR zone_id=$3)
-GROUP BY 1 ORDER BY 1`, window.From, window.To, zone)
+	rows, err := a.db.Query(ctx, `SELECT date_trunc('minute',entered_at),count(*) FROM visits v JOIN sessions se ON se.id=v.session_id
+WHERE entered_at >= $1 AND entered_at <= $2 AND ($3::text IS NULL OR zone_id=$3) AND ($4::text IS NULL OR se.gender=$4)
+GROUP BY 1 ORDER BY 1`, window.From, window.To, zone, gender)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "No se pudo consultar la serie")
 		return

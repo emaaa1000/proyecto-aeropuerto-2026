@@ -28,17 +28,18 @@ func (a *App) spatial(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	routes, err := a.routes(ctx, window, 120)
+	gender := genderParam(r)
+	routes, err := a.routes(ctx, window, 120, gender)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "Trayectorias históricas no disponibles")
 		return
 	}
-	heat, err := a.heat(ctx, window)
+	heat, err := a.heat(ctx, window, gender)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "Mapa de calor no disponible")
 		return
 	}
-	flows, err := a.flows(ctx, window)
+	flows, err := a.flows(ctx, window, gender)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "Flujos entre zonas no disponibles")
 		return
