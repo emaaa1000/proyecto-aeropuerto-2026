@@ -1,2 +1,6 @@
 Modelo/Modelo/clip_genero/model.safetensors filter=lfs diff=lfs merge=lfs -text
 Modelo/Modelo/segformer_piso/model.safetensors filter=lfs diff=lfs merge=lfs -text
+
+# Scripts que Docker copia tal cual a un contenedor Linux: un checkout en
+# Windows con autocrlf no debe convertirlos a CRLF (rompe el shebang).
+*.sh text eol=lf

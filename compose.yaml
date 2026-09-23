@@ -33,6 +33,10 @@ services:
     ports:
       # Local: 127.0.0.1. Servidor: BIND_ADDR=0.0.0.0 y WEB_PORT=80 en .env.
       - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8080}:80"
+      # HTTPS (certificado autofirmado, ver web/docker-entrypoint.sh): hace
+      # falta para usar la cámara desde otro equipo en la misma red, ya que
+      # el navegador solo concede permiso de cámara en contexto seguro.
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_TLS_PORT:-8443}:443"
     depends_on:
       backend:
         condition: service_healthy
