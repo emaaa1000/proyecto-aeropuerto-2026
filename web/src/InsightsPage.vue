@@ -194,6 +194,82 @@ function sparklinePoints(values: number[], w = 72, h = 22, pad = 2) {
 
 const zoneComparisonMaxDwell = computed(() => Math.max(1, ...zoneComparison.value.map((z) => z.dwell_seconds ?? 0)));
 
+// --- exportación: PDF vía impresión del navegador, Excel como CSV ---
+// Sin librerías nuevas (el proyecto no trae ninguna en el frontend): un
+// stylesheet @media print para el PDF y un Blob de texto para el CSV.
+const generatedAt = ref("");
+const filterSummary = computed(() => {
+  const parts: string[] = [];
+  parts.push(selectedZone.value ? `Tienda: ${selectedZone.value.name}` : "Tienda: todas");
+  parts.push(genderFilter.value ? `Género: ${genderLabels[genderFilter.value]}` : "Género: todos");
+  if (dateFilter.value) {
+    let when = `Fecha: ${dateFilter.value}`;
+    if (hourFilter.value !== "") when += ` · ${String(hourFilter.value).padStart(2, "0")}:00`;
+    else if (slotFilter.value) when += ` · franja ${slotFilter.value}`;
+    parts.push(when);
+  } else {
+    parts.push("Rango: última hora con datos");
+  }
+  return parts.join("  ·  ");
+});
+function exportPDF() {
+  generatedAt.value = new Date().toLocaleString("es-PE");
+  window.print();
+}
+function csvCell(v: string | number): string {
+  const s = String(v);
+  return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function exportCSV() {
+  if (!data.value) return;
+  const rows: (string | number)[][] = [];
+  rows.push(["Comportamiento de pasajeros · Jorge Chávez Nivel 3"]);
+  rows.push([filterSummary.value]);
+  rows.push([`Rango: ${new Date(data.value.from).toLocaleString("es-PE")} a ${new Date(data.value.to).toLocaleString("es-PE")}`]);
+  rows.push([]);
+  rows.push(["Indicador", "Valor"]);
+  rows.push(["Activas", data.value.metrics.active]);
+  rows.push(["Visitas", data.value.metrics.visits]);
+  rows.push(["IDs anónimos", data.value.unique]);
+  rows.push(["Pass-by", data.value.metrics.pass_by]);
+  rows.push(["Dwell time (s)", data.value.metrics.dwell_seconds ?? ""]);
+  rows.push(["Capture rate (%)", data.value.metrics.capture_rate ?? ""]);
+  rows.push(["Expuestas", data.value.metrics.exposed]);
+  rows.push(["Capturadas", data.value.metrics.captured]);
+  rows.push(["Densidad (pers/m²)", data.value.metrics.density]);
+  rows.push(["Visitas completas", data.value.complete]);
+  rows.push(["Visitas censuradas", data.value.censored]);
+  rows.push([]);
+  rows.push(["Comparación entre zonas"]);
+  rows.push(["Zona", "Visitas", "Pass-by", "Dwell time (s)", "Capture rate (%)"]);
+  for (const z of zoneComparison.value) {
+    rows.push([z.name, z.visits, z.pass_by, z.dwell_seconds ?? "", z.capture_rate ?? ""]);
+  }
+  rows.push([]);
+  rows.push(["Flujo entre zonas"]);
+  rows.push(["Origen", "Destino", "Personas"]);
+  for (const f of spatial.value.flows) {
+    rows.push([zones.value.find((z) => z.id === f.from_zone)?.name ?? f.from_zone, zones.value.find((z) => z.id === f.to_zone)?.name ?? f.to_zone, f.count]);
+  }
+  rows.push([]);
+  rows.push(["Visitas por minuto"]);
+  rows.push(["Hora", "Visitas"]);
+  for (const p of data.value.series) {
+    rows.push([new Date(p.at).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" }), p.visits]);
+  }
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  // BOM: Excel detecta UTF-8 (tildes/ñ) solo si el archivo empieza con él.
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `insights-comerciales-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // --- flujo entre zonas: mini-sankey de dos columnas (origen -> destino) ---
 const sankey = computed(() => {
   const flows = spatial.value.flows;
@@ -248,7 +324,17 @@ onMounted(load);
         @click="genderFilter = code; load()"
       >{{ label }}</button>
     </div>
+    <div class="export-actions">
+      <button type="button" :disabled="!data" @click="exportPDF">⤓ Exportar PDF</button>
+      <button type="button" :disabled="!data" @click="exportCSV">⤓ Exportar Excel (CSV)</button>
+    </div>
   </section>
+  <div v-if="data" class="print-header">
+    <h1>LAP · Jorge Chávez · Comportamiento de pasajeros</h1>
+    <p>{{ filterSummary }}</p>
+    <p>Rango: {{ new Date(data.from).toLocaleString("es-PE") }} — {{ new Date(data.to).toLocaleString("es-PE") }}</p>
+    <p>Generado {{ generatedAt }}</p>
+  </div>
   <p v-if="error" class="error" role="alert">{{ error }}</p>
   <p v-if="loading && !data" class="empty">Consultando histórico…</p>
   <div class="spatial-insights">

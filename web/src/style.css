@@ -1438,6 +1438,19 @@ footer {
   border-color: var(--blue-600);
   color: #fff;
 }
+.export-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-basis: 100%;
+}
+.export-actions button {
+  font-size: 10.5px;
+  padding: 6px 12px;
+}
+.print-header {
+  display: none;
+}
 .zone-compare-note {
   padding: 0 13px 10px;
   color: var(--ink-faint);
@@ -1616,5 +1629,93 @@ footer {
   }
   h1 {
     font-size: 19px;
+  }
+}
+
+/* ---------- impresión / exportar PDF ----------
+   "Exportar PDF" llama a window.print(): esta hoja oculta la navegación y
+   los controles interactivos, fuerza colores claros (el tema oscuro
+   desperdicia tinta y no imprime bien) y apila el panel de dos columnas. */
+@media print {
+  :root,
+  :root[data-theme="dark"] {
+    --ink: #0a2540;
+    --ink-soft: #56779a;
+    --ink-faint: #8ba4bf;
+    --glass: #fff;
+    --glass-strong: #fff;
+    --glass-line: #d8e4f0;
+    --pill-bg: #dceeff;
+    --pill-fg: #0f52b8;
+    --pill-border: #bcdcff;
+    --heading-glow-1: transparent;
+    --heading-glow-2: transparent;
+    --sheen: none;
+    color-scheme: light;
+  }
+  * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  body {
+    background: #fff !important;
+  }
+  .sidebar,
+  .workspace-header,
+  .replay-filters,
+  .gender-slicer,
+  .export-actions,
+  .plan-topline .plan-zoom,
+  footer,
+  .drawing-help,
+  .toast-stack,
+  .config-tabs {
+    display: none !important;
+  }
+  .app-shell {
+    display: block;
+  }
+  main {
+    padding: 0;
+    max-width: none;
+  }
+  .print-header {
+    display: block;
+    margin-bottom: 14px;
+  }
+  .print-header h1 {
+    font-size: 18px;
+    margin-bottom: 4px;
+  }
+  .print-header p {
+    font-size: 10px;
+    color: var(--ink-soft);
+    margin: 2px 0;
+  }
+  .page-title {
+    display: none;
+  }
+  .spatial-insights {
+    display: block;
+  }
+  .spatial-maps,
+  .insight-sidebar {
+    display: block;
+  }
+  .panel {
+    box-shadow: none;
+    border: 1px solid var(--glass-line);
+    break-inside: avoid;
+    margin-bottom: 12px;
+    backdrop-filter: none;
+  }
+  .panel::before {
+    display: none;
+  }
+  .metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .local-plan .plan-svg {
+    max-height: 320px;
   }
 }
