@@ -117,7 +117,7 @@ const tamaño_real = computed(() => {
 
           <div class="mapa-video">
             <h4>Video del mapa 2D</h4>
-            <video controls preload="metadata" src="/api/esan/video/mapa_2d.mp4">
+            <video controls preload="metadata" :src="'/api/esan/video/mapa_2d.mp4'">
               Tu navegador no soporta video.
             </video>
             <p class="image-caption">Video 2D con trayectorias persistentes y camaras sincronizadas</p>

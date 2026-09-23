@@ -1,0 +1,17 @@
+{
+  "estadísticas": {
+    "total_personas": 16,
+    "total_puntos": 13686,
+    "tiempo_total_s": 128.933,
+    "duracion_promedio_s": 53.4875,
+    "genero": {
+      "Hombre": 6,
+      "Mujer": 3,
+      "Sin determinar": 7
+    }
+  },
+  "mapa": {
+    "tam_px": [1060, 660],
+    "px_por_metro": 30
+  }
+}

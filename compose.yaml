@@ -18,6 +18,10 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgres://aeropuerto:${DB_PASSWORD:-demo_local_only}@db:5432/aeropuerto?sslmode=disable
+    volumes:
+      # Videos/imágenes procesados que sirve /api/esan/video/ (main.go);
+      # no van dentro de la imagen para no inflarla en cada build.
+      - ./Modelo/Ouput:/Modelo/Ouput:ro
     depends_on:
       db:
         condition: service_healthy
