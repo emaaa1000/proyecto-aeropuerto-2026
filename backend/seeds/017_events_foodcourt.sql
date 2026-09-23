@@ -1,0 +1,25 @@
+-- Eventos ENTER/EXIT del patio de comidas.
+INSERT INTO events (session_id, zone_id, kind, observed_at) VALUES
+    ('trip-031', 'food_court', 'ENTER', '2026-09-06T19:42:34.523Z'),
+    ('trip-032', 'food_court', 'ENTER', '2026-09-06T19:43:28.590Z'),
+    ('trip-031', 'food_court', 'EXIT', '2026-09-06T19:43:40.523Z'),
+    ('trip-033', 'food_court', 'ENTER', '2026-09-06T19:45:03.932Z'),
+    ('trip-032', 'food_court', 'EXIT', '2026-09-06T19:45:40.590Z'),
+    ('trip-033', 'food_court', 'EXIT', '2026-09-06T19:46:31.932Z'),
+    ('trip-034', 'food_court', 'ENTER', '2026-09-06T19:46:39.877Z'),
+    ('trip-035', 'food_court', 'ENTER', '2026-09-06T19:48:10.053Z'),
+    ('trip-036', 'food_court', 'ENTER', '2026-09-06T19:49:35.542Z'),
+    ('trip-034', 'food_court', 'EXIT', '2026-09-06T19:49:57.877Z'),
+    ('trip-035', 'food_court', 'EXIT', '2026-09-06T19:50:44.053Z'),
+    ('trip-037', 'food_court', 'ENTER', '2026-09-06T19:50:45.669Z'),
+    ('trip-036', 'food_court', 'EXIT', '2026-09-06T19:52:09.542Z'),
+    ('trip-038', 'food_court', 'ENTER', '2026-09-06T19:52:12.845Z'),
+    ('trip-038', 'food_court', 'EXIT', '2026-09-06T19:53:40.845Z'),
+    ('trip-039', 'food_court', 'ENTER', '2026-09-06T19:53:42.918Z'),
+    ('trip-037', 'food_court', 'EXIT', '2026-09-06T19:54:25.669Z'),
+    ('trip-040', 'food_court', 'ENTER', '2026-09-06T19:54:52.475Z'),
+    ('trip-039', 'food_court', 'EXIT', '2026-09-06T19:55:54.918Z'),
+    ('trip-041', 'food_court', 'ENTER', '2026-09-06T19:56:07.058Z'),
+    ('trip-041', 'food_court', 'EXIT', '2026-09-06T19:57:35.058Z'),
+    ('trip-040', 'food_court', 'EXIT', '2026-09-06T19:58:10.475Z')
+;

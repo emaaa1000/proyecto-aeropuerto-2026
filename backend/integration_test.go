@@ -140,7 +140,9 @@ func TestHistoricalReplayAndMetrics(t *testing.T) {
 	if err = json.Unmarshal(summaryResult.Body.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if len(summary.Zones) != 3 || summary.Metrics.Visits != 1 {
+	// 4 zonas: front/shop (seeds/003_zones.sql), food_court (seeds/013_zones_foodcourt.sql) y
+	// queue, insertada ad-hoc por este test.
+	if len(summary.Zones) != 4 || summary.Metrics.Visits != 1 {
 		t.Fatalf("el resumen debe publicar el catálogo y respetar la zona: %+v", summary)
 	}
 }
