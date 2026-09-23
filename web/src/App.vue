@@ -1,9 +1,22 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import { useRouter } from "vue-router";
 const route = useRoute();
 const router = useRouter();
+
+const theme = ref<"light" | "dark">(
+  (document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light",
+);
+function toggleTheme() {
+  theme.value = theme.value === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", theme.value);
+  try {
+    localStorage.setItem("lap-theme", theme.value);
+  } catch {
+    /* localStorage puede estar bloqueado (modo privado); el tema no persiste. */
+  }
+}
 const title = computed(() =>
   route.path === "/configuracion"
     ? "Cámaras y zonas del terminal"
@@ -63,6 +76,13 @@ function logout() {
         <div><span class="breadcrumb">LAP /</span> {{ title }}</div>
         <div class="workspace-meta">
           <span class="live-dot"></span> Demo local
+          <button
+            class="theme-toggle"
+            type="button"
+            @click="toggleTheme"
+            :aria-label="theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'"
+            :title="theme === 'dark' ? 'Modo claro' : 'Modo oscuro'"
+          >{{ theme === "dark" ? "☀" : "☾" }}</button>
           <span class="avatar" title="Sesión LAP">LAP</span>
           <button class="logout-button" type="button" @click="logout">Salir</button>
         </div>

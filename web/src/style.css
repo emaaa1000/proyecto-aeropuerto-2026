@@ -36,6 +36,43 @@
   color: var(--ink);
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+/* ---------- modo oscuro ----------
+   .panel y la mayoria de superficies ya usan var(--glass)/var(--ink)*, asi
+   que redefinir estos tokens re-tema casi toda la app. Solo el body, el
+   header y el login usan colores fijos aparte y se ajustan explicitamente.
+   Se activa por preferencia del sistema o por el interruptor en App.vue
+   (persistido en localStorage como data-theme en <html>). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #e7f0fb;
+    --ink-soft: #a9c0dc;
+    --ink-faint: #7391b3;
+    --danger-soft: rgba(207, 64, 64, 0.18);
+    --glass: rgba(18, 34, 56, 0.66);
+    --glass-strong: rgba(22, 40, 64, 0.85);
+    --glass-line: rgba(255, 255, 255, 0.1);
+    --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --shadow-s: 0 4px 14px rgba(0, 0, 0, 0.25);
+    --shadow-m: 0 12px 34px rgba(0, 0, 0, 0.32);
+    --shadow-l: 0 26px 70px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #e7f0fb;
+  --ink-soft: #a9c0dc;
+  --ink-faint: #7391b3;
+  --danger-soft: rgba(207, 64, 64, 0.18);
+  --glass: rgba(18, 34, 56, 0.66);
+  --glass-strong: rgba(22, 40, 64, 0.85);
+  --glass-line: rgba(255, 255, 255, 0.1);
+  --sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-s: 0 4px 14px rgba(0, 0, 0, 0.25);
+  --shadow-m: 0 12px 34px rgba(0, 0, 0, 0.32);
+  --shadow-l: 0 26px 70px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
 }
 * {
   box-sizing: border-box;
@@ -48,6 +85,14 @@ body {
     radial-gradient(900px 560px at 102% -4%, #d8f2ff 0%, transparent 58%),
     radial-gradient(820px 760px at 62% 112%, #cddfff 0%, transparent 60%),
     linear-gradient(180deg, #eff7ff 0%, #e2eefc 100%);
+  background-attachment: fixed;
+}
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(1100px 680px at 6% -12%, rgba(20, 60, 110, 0.35) 0%, transparent 62%),
+    radial-gradient(900px 560px at 102% -4%, rgba(20, 80, 110, 0.28) 0%, transparent 58%),
+    radial-gradient(820px 760px at 62% 112%, rgba(20, 40, 100, 0.3) 0%, transparent 60%),
+    linear-gradient(180deg, #0a1830 0%, #060f22 100%);
   background-attachment: fixed;
 }
 a {
@@ -89,8 +134,9 @@ select {
   padding: 8px 10px;
   font-size: 12px;
   border-radius: var(--radius-s);
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--glass-line);
+  background: var(--glass-strong);
+  color-scheme: inherit;
   box-shadow: var(--sheen);
   outline: none;
   transition:
@@ -265,6 +311,8 @@ button:disabled {
 .login-security span { margin-right: 5px; color: var(--good); font-size: 16px; vertical-align: -1px; }
 .logout-button { padding: 5px 8px; border: 0; background: transparent; box-shadow: none; color: var(--ink-soft); font-size: 11px; }
 .logout-button:hover { color: var(--danger); background: rgba(207, 64, 64, .08); transform: none; }
+.theme-toggle { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--glass-line); border-radius: 50%; background: var(--glass); box-shadow: none; color: var(--ink-soft); font-size: 12px; }
+.theme-toggle:hover { color: var(--blue-600); transform: none; }
 
 /* ---------- estructura ---------- */
 .app-shell {
@@ -446,7 +494,7 @@ button:disabled {
   padding: 0 20px;
   font-size: 12px;
   font-weight: 560;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--glass-strong);
   backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow: 0 1px 12px rgba(10, 45, 92, 0.06);
@@ -1341,6 +1389,106 @@ footer {
   font-size: 9.5px;
   color: var(--ink-faint);
   line-height: 1.45;
+}
+.metric-icon {
+  display: inline-block;
+  margin-right: 4px;
+  font-size: 11px;
+  color: var(--cyan-400);
+}
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 22px;
+  margin: 2px 0 4px;
+  overflow: visible;
+}
+.sparkline polyline {
+  fill: none;
+  stroke: var(--blue-500);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.gender-slicer {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.gender-slicer button {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-line);
+  background: var(--glass);
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+  box-shadow: none;
+}
+.gender-slicer button.active {
+  background: var(--blue-600);
+  border-color: var(--blue-600);
+  color: #fff;
+}
+.zone-compare-note {
+  padding: 0 13px 10px;
+  color: var(--ink-faint);
+}
+.zone-compare-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.zone-compare-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.zone-compare-label b {
+  font-size: 12px;
+}
+.zone-compare-bar-track {
+  position: relative;
+  height: 20px;
+  border-radius: 7px;
+  background: rgba(120, 150, 190, 0.16);
+  overflow: hidden;
+}
+.zone-compare-bar {
+  height: 100%;
+  min-width: 3px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--blue-500), var(--cyan-400));
+}
+.zone-compare-value {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9.5px;
+  font-weight: 650;
+  color: var(--ink-soft);
+}
+.sankey {
+  width: 100%;
+  display: block;
+  padding: 4px 13px 14px;
+}
+.sankey-label {
+  font-size: 6.4px;
+  fill: var(--ink-soft);
+}
+.sankey-count {
+  font-size: 6.4px;
+  font-weight: 700;
+  fill: var(--ink-faint);
 }
 .chart {
   display: flex;
