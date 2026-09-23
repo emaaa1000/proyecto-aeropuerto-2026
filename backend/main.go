@@ -111,6 +111,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	a.mapRoutes(mux)
+	a.localesRoutes(mux)
 	a.replayRoutes(mux)
 	mux.HandleFunc("GET /api/v1/insights/spatial", a.spatial)
 	mux.HandleFunc("GET /api/v1/insights/summary", a.insights)

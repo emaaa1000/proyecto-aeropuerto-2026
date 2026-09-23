@@ -316,6 +316,10 @@ onUnmounted(() => {
       </div>
     </div>
   </section>
+  <nav class="config-tabs">
+    <RouterLink to="/configuracion">Cámaras y zonas</RouterLink>
+    <RouterLink to="/configuracion/tiendas">Tiendas</RouterLink>
+  </nav>
   <div class="editor-layout">
     <section class="panel editor-map-panel">
       <div class="panel-heading">

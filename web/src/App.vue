@@ -7,9 +7,11 @@ const router = useRouter();
 const title = computed(() =>
   route.path === "/configuracion"
     ? "Cámaras y zonas del terminal"
-    : route.path === "/insights"
-      ? "Análisis comercial"
-      : "Control en vivo",
+    : route.path === "/configuracion/tiendas"
+      ? "Tiendas y locales comerciales"
+      : route.path === "/insights"
+        ? "Análisis comercial"
+        : "Control en vivo",
 );
 
 function logout() {

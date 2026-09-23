@@ -9,6 +9,7 @@ const router = createRouter({
     { path: "/login", component: () => import("./LoginPage.vue"), meta: { public: true } },
     { path: "/mapa", component: () => import("./MapPage.vue") },
     { path: "/configuracion", component: () => import("./EditorPage.vue") },
+    { path: "/configuracion/tiendas", component: () => import("./TiendasPage.vue") },
     { path: "/insights", component: () => import("./InsightsPage.vue") },
     { path: "/:pathMatch(.*)*", redirect: "/mapa" },
   ],

@@ -37,6 +37,10 @@ const props = withDefaults(
     drawColor?: string;
     labels?: boolean;
     zoomable?: boolean;
+    // When true, vertices/objects are already in plan-meters (SRID 0), the
+    // same space as `zones`/heat/people — skip the toPlan()/fromPlan() lon/lat
+    // conversion used for map_objects (SRID 4326).
+    planSpace?: boolean;
   }>(),
   {
     objects: () => [],
@@ -59,6 +63,7 @@ const emit = defineEmits<{
   select: [id: string];
   selectPerson: [id: string];
   move: [index: number, p: number[]];
+  commit: [];
 }>();
 const svg = ref<SVGSVGElement>();
 const space = ref<SVGGElement>();
@@ -159,7 +164,7 @@ function move(e: PointerEvent) {
     return;
   }
   if (props.editing && drag.handle !== null) {
-    emit("move", drag.handle, fromPlan(local(e)));
+    emit("move", drag.handle, props.planSpace ? local(e) : fromPlan(local(e)));
     return;
   }
   if (!interactive.value) return;
@@ -176,17 +181,30 @@ function up(e: PointerEvent) {
     if (props.drawing && props.editing) {
       // Un clic sobre un vértice ya marcado lo retira en vez de duplicarlo.
       if (drag.handle !== null) emit("removePoint", drag.handle);
-      else emit("point", fromPlan(local(e)));
+      else emit("point", props.planSpace ? local(e) : fromPlan(local(e)));
     } else if (drag.person) emit("selectPerson", drag.person);
     else if (drag.id) emit("select", drag.id);
+  } else if (props.editing && drag.handle !== null) {
+    // Se soltó un vértice arrastrado: la geometría ya se actualizó vía "move".
+    emit("commit");
   }
   drag = null;
 }
 function coords(p: number[]) {
-  return toPlan(p);
+  return props.planSpace ? p : toPlan(p);
 }
 function marker(o: MapObject) {
   return o.geometry.type === "Point" ? coords(o.geometry.coordinates) : [0, 0];
+}
+// svgPath() from ./plan always applies the lon/lat toPlan() transform; in
+// planSpace mode the geometry is already plan-meters, so build the path with
+// the local, transform-aware coords() instead.
+function objectPath(g: GeoJSON.Geometry) {
+  if (!props.planSpace) return svgPath(g);
+  if (g.type !== "Polygon") return "";
+  return g.coordinates
+    .map((ring) => ring.map((p, i) => `${i ? "L" : "M"}${coords(p).join(",")}`).join(" ") + "Z")
+    .join(" ");
 }
 function valid(o: MapObject) {
   return o.geometry.type === "Point"
@@ -320,7 +338,7 @@ watch(base, reset);
         >
           <path
             v-if="o.coverage"
-            :d="svgPath(o.coverage)"
+            :d="objectPath(o.coverage)"
             :fill="o.color"
             fill-opacity=".14"
             :stroke="o.color"
@@ -329,7 +347,7 @@ watch(base, reset);
           />
           <path
             v-if="o.geometry.type === 'Polygon'"
-            :d="svgPath(o.geometry)"
+            :d="objectPath(o.geometry)"
             :fill="o.color"
             :fill-opacity="selected === o.id ? 0.62 : 0.45"
             :stroke="o.color"
