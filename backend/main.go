@@ -115,6 +115,7 @@ func main() {
 	a.replayRoutes(mux)
 	mux.HandleFunc("GET /api/v1/insights/spatial", a.spatial)
 	mux.HandleFunc("GET /api/v1/insights/summary", a.insights)
+	mux.Handle("GET /api/esan/video/", http.StripPrefix("/api/esan/video/", http.FileServer(http.Dir("../Modelo/Ouput"))))
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		c, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()

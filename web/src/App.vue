@@ -24,7 +24,9 @@ const title = computed(() =>
       ? "Tiendas y locales comerciales"
       : route.path === "/insights"
         ? "Análisis comercial"
-        : "Control en vivo",
+        : route.path === "/esan"
+          ? "ESAN - Análisis de Flujo"
+          : "Control en vivo",
 );
 
 function logout() {
@@ -52,14 +54,18 @@ function logout() {
           ><span>⌖</span
           ><span class="nav-label"><b class="nav-step">1.</b>En vivo</span
           ></RouterLink
+        ><RouterLink to="/esan"
+          ><span>📊</span
+          ><span class="nav-label"><b class="nav-step">2.</b>ESAN</span
+          ></RouterLink
         ><RouterLink to="/insights"
           ><span>▥</span
-          ><span class="nav-label"><b class="nav-step">2.</b>Insights</span
+          ><span class="nav-label"><b class="nav-step">3.</b>Insights</span
           ></RouterLink
         ><RouterLink to="/configuracion"
           ><span>◇</span
           ><span class="nav-label"
-            ><b class="nav-step">3.</b>Configuración</span
+            ><b class="nav-step">4.</b>Configuración</span
           ></RouterLink
         >
       </nav>
