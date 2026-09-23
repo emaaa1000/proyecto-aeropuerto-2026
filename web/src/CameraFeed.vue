@@ -20,15 +20,24 @@ const video = ref<HTMLVideoElement>(),
   frames = ref(0),
   motion = ref(0),
   fps = ref(0),
-  starting = ref(false);
+  starting = ref(false),
+  // true when this feed is not the local camera but a relay of another
+  // device's camera (e.g. viewing the phone's cam from the laptop).
+  watching = ref(false),
+  frameUrl = ref("");
 let stream: MediaStream | undefined,
   timer: ReturnType<typeof setInterval> | undefined,
   previous: Uint8ClampedArray | undefined,
-  lastTime = 0;
+  lastTime = 0,
+  watchSocket: WebSocket | undefined,
+  publishSocket: WebSocket | undefined,
+  publishTimer: ReturnType<typeof setInterval> | undefined,
+  watchRetry: ReturnType<typeof setTimeout> | undefined;
 const buffer = document.createElement("canvas");
 buffer.width = 160;
 buffer.height = 90;
 const ctx = buffer.getContext("2d", { willReadFrequently: true })!;
+const publishCanvas = document.createElement("canvas");
 // Device stored for this camera in source_ref, as webcam:<deviceId>.
 const assigned = computed(() =>
   props.camera.source_ref.startsWith("webcam:")
@@ -61,8 +70,103 @@ async function refreshDevices() {
     devices.value = [];
   }
 }
+function wsUrl(path: string) {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${location.host}${path}`;
+}
+function stopPublishing() {
+  clearInterval(publishTimer);
+  publishTimer = undefined;
+  publishSocket?.close();
+  publishSocket = undefined;
+}
+function startPublishing() {
+  stopPublishing();
+  publishSocket = new WebSocket(
+    wsUrl(`/api/v1/cameras/${props.camera.id}/publish`),
+  );
+  publishSocket.addEventListener("open", () => {
+    publishTimer = setInterval(sendFrame, 300);
+  });
+}
+function sendFrame() {
+  if (
+    !video.value ||
+    video.value.readyState < 2 ||
+    publishSocket?.readyState !== WebSocket.OPEN
+  )
+    return;
+  const w = 480,
+    h = Math.round((video.value.videoHeight / video.value.videoWidth) * w) || 270;
+  if (publishCanvas.width !== w || publishCanvas.height !== h) {
+    publishCanvas.width = w;
+    publishCanvas.height = h;
+  }
+  publishCanvas.getContext("2d")?.drawImage(video.value, 0, 0, w, h);
+  publishCanvas.toBlob(
+    (blob) => {
+      if (blob && publishSocket?.readyState === WebSocket.OPEN)
+        blob
+          .arrayBuffer()
+          .then(
+            (buf) =>
+              publishSocket?.readyState === WebSocket.OPEN &&
+              publishSocket.send(buf),
+          );
+    },
+    "image/jpeg",
+    0.6,
+  );
+}
+let watchWanted = false;
+function stopWatching() {
+  watchWanted = false;
+  clearTimeout(watchRetry);
+  watchRetry = undefined;
+  watching.value = false;
+  if (frameUrl.value) {
+    URL.revokeObjectURL(frameUrl.value);
+    frameUrl.value = "";
+  }
+  if (watchSocket) {
+    const s = watchSocket;
+    watchSocket = undefined;
+    s.close();
+  }
+}
+function startWatching() {
+  watchWanted = true;
+  if (watchSocket) return;
+  clearTimeout(watchRetry);
+  const socket = new WebSocket(wsUrl(`/api/v1/cameras/${props.camera.id}/watch`));
+  watchSocket = socket;
+  socket.binaryType = "arraybuffer";
+  socket.addEventListener("open", () => {
+    starting.value = false;
+    active.value = true;
+  });
+  socket.addEventListener("message", (ev) => {
+    const blob = new Blob([ev.data as ArrayBuffer], { type: "image/jpeg" });
+    const url = URL.createObjectURL(blob);
+    const prev = frameUrl.value;
+    frameUrl.value = url;
+    watching.value = true;
+    if (prev) URL.revokeObjectURL(prev);
+  });
+  const retry = () => {
+    if (watchSocket !== socket) return;
+    watchSocket = undefined;
+    starting.value = false;
+    if (!watchWanted) return;
+    watchRetry = setTimeout(startWatching, 2000);
+  };
+  socket.addEventListener("close", retry);
+  socket.addEventListener("error", () => socket.close());
+}
 function stop() {
   clearInterval(timer);
+  stopPublishing();
+  stopWatching();
   stream?.getTracks().forEach((t) => t.stop());
   stream = undefined;
   if (video.value) {
@@ -140,10 +244,23 @@ async function start() {
     // Hand the device up so it is stored and no other camera offers it.
     if (props.configurable && device.value !== assigned.value)
       emit("assign", device.value);
+    // Let other browsers watch this camera live (e.g. laptop <- phone).
+    if (!props.configurable) startPublishing();
   } catch (e) {
     stop();
     await refreshDevices();
     const name = e instanceof DOMException ? e.name : "";
+    // The assigned deviceId belongs to a different physical device (its
+    // own browser owns it, e.g. the phone) — watch that device's relay
+    // instead of failing outright.
+    if (
+      !props.configurable &&
+      assigned.value &&
+      (name === "OverconstrainedError" || name === "NotFoundError")
+    ) {
+      startWatching();
+      return;
+    }
     error.value =
       name === "NotAllowedError"
         ? "Permiso denegado. Habilita la cámara en el navegador y vuelve a intentarlo."
@@ -218,7 +335,7 @@ defineExpose({ stop });
       <b>{{ camera.name }}</b>
       <span class="feed-header-right">
         <span :class="active ? 'good' : 'muted'">{{
-          active ? "● En vivo" : "Sin activar"
+          active ? (watching ? "● En vivo (remoto)" : "● En vivo") : "Sin activar"
         }}</span>
         <button
           v-if="expandable"
@@ -231,9 +348,15 @@ defineExpose({ stop });
       </span>
     </div>
     <div class="video-stage" :style="{ aspectRatio: aspect }">
-      <video ref="video" muted playsinline></video
-      ><canvas ref="overlay" width="160" height="90"></canvas>
-      <p v-if="!active">
+      <img v-if="watching" :src="frameUrl" alt="" class="relay-frame" />
+      <template v-else
+        ><video ref="video" muted playsinline></video
+        ><canvas ref="overlay" width="160" height="90"></canvas
+      ></template>
+      <p v-if="active && watching && !frameUrl">
+        Conectando con la cámara remota…
+      </p>
+      <p v-else-if="!active">
         {{ needsDevice ? "Sin dispositivo asignado" : "Cámara USB / portátil" }}
         <br /><small>{{
           needsDevice
@@ -273,8 +396,11 @@ defineExpose({ stop });
     <p v-else-if="configurable && assigned" class="feed-note">
       Dispositivo guardado en esta cámara; no se ofrece en las demás.
     </p>
+    <p v-else-if="watching" class="feed-note">
+      Esta cámara está en otro dispositivo de la red; viendo su transmisión.
+    </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <div class="processing-stats">
+    <div v-if="!watching" class="processing-stats">
       <span>{{ fps.toFixed(1) }} FPS</span><span>{{ frames }} frames</span
       ><span>{{ motion.toFixed(1) }}% movimiento</span>
     </div>

@@ -985,7 +985,8 @@ footer {
   font-size: 11px;
 }
 .video-stage video,
-.video-stage canvas {
+.video-stage canvas,
+.video-stage .relay-frame {
   position: absolute;
   inset: 0;
   width: 100%;

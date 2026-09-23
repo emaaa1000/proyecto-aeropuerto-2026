@@ -28,7 +28,8 @@ type Point struct {
 }
 
 type App struct {
-	db *pgxpool.Pool
+	db    *pgxpool.Pool
+	relay *relayHub
 }
 
 func newID() string {
@@ -101,7 +102,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	a := &App{db: db}
+	a := &App{db: db, relay: newRelayHub()}
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err = a.migrate(startup); err != nil {
@@ -113,6 +114,7 @@ func main() {
 	a.mapRoutes(mux)
 	a.localesRoutes(mux)
 	a.replayRoutes(mux)
+	a.relayRoutes(mux)
 	mux.HandleFunc("GET /api/v1/insights/spatial", a.spatial)
 	mux.HandleFunc("GET /api/v1/insights/summary", a.insights)
 	mux.Handle("GET /api/esan/video/", http.StripPrefix("/api/esan/video/", http.FileServer(http.Dir("../Modelo/Ouput"))))
