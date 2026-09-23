@@ -1,31 +1,31 @@
 {
   "version": "2.0",
-  "fecha": "2026-09-16T01:08:07-05:00",
+  "fecha": "2026-09-23T07:41:15-05:00",
   "notebook": "LAP01_Multitracking.ipynb",
-  "notebook_sha256": "f30c3f33c5eb958ed811a5254791eca09a214e30254e3e7322de363419f6a64c",
+  "notebook_sha256": "67af639307da03d7794aca83c381363a0ad7fd93fe221b0e1be04add7c0746d7",
   "modo_multicamara": "visual_temporal",
   "files_sha256": {
     "Modelo/resnet18-f37072fd.pth": "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec",
     "Modelo/yolo26m.pt": "401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7",
     "Modelo/yolo26s-reid.onnx": "1cfff339245e6564f64e9e9a985b11fa55d5be939d1ac72da64ac5fcd9efa271",
-    "Modelo/config_lap01.json": "9daf16e7439220700dcb246e6ea12050afecac0b2c2945641cba11c964e89cd5",
-    "Modelo/camaras.json": "2f09974d309ad6928fa1fdddafb26bcb65c0657bdf3ea601e42bbd10dff1ad06",
-    "Modelo/mapa_piso.json": "9a01ff98385c5df4a9e97b63526395753c4acc00062b56f4756d0b4393912674",
-    "Modelo/clip_genero/config.json": "281fb420d4e535614e1e1cb5401bdc9958c1827ed6b85628aaabdbea83ee51aa",
-    "Modelo/clip_genero/model.safetensors": "d5853196afb60ca6373692d9af911aacd8fa821af6d4af54720d4eb9c8f5da0a",
-    "Modelo/clip_genero/processor_config.json": "38d5457ba35b9eee2b4fb2b8d3f151ca8cb5932348e6979d1c5d8f05966ce810",
-    "Modelo/clip_genero/tokenizer.json": "6d9109cc838977f3ca94a379eec36aecc7c807e1785cd729660ca2fc0171fb35",
-    "Modelo/clip_genero/tokenizer_config.json": "5bc12477f8da2ea8b22698daaeaf06ca5e4fef7848d414ba321a3d0025276432"
+    "Modelo/config_lap01.json": "3f4f59bc53a96a7eaa6a675b95f096d4debd5e1288a9a19d79158fefda29b868",
+    "Modelo/camaras.json": "8e7a5f9164f33961a43481add525e1c049913d90a91a493293154b60d3519f99",
+    "Modelo/mapa_piso.json": "f34066926454a95285aeaf5c256357a7a682c671e0d32cc270496c816b9f5457",
+    "Modelo/clip_genero\\config.json": "4e5821fb0c597724c7f92b278e540e69fd981dc99dfd241450b8505dc23ba1c6",
+    "Modelo/clip_genero\\model.safetensors": "d5853196afb60ca6373692d9af911aacd8fa821af6d4af54720d4eb9c8f5da0a",
+    "Modelo/clip_genero\\processor_config.json": "4c80980e051e00d48e03c9ba0e1ca0284a1e8bfbd005c68e18d25b15866a9c7a",
+    "Modelo/clip_genero\\tokenizer.json": "eafd713b5c621447fa92db4d23139c0bc3edf326c890d95470e758f054ec147d",
+    "Modelo/clip_genero\\tokenizer_config.json": "90e18128ad2d6bcd21df4e5104757fe4b0de24124263d6dc34d74f7969df3d7a"
   },
   "packages": {
-    "torch": "2.14.0",
-    "torchvision": "0.29.0",
+    "torch": "2.14.0+cu126",
+    "torchvision": "0.29.0+cu126",
     "transformers": "5.17.0",
-    "ultralytics": "8.4.142",
-    "numpy": "2.5.1",
+    "ultralytics": "8.4.160",
+    "numpy": "2.5.2",
     "scipy": "1.18.1",
     "opencv-python": "5.0.0.93",
     "onnxruntime": "1.30.0",
-    "pandas": "3.0.5"
+    "pandas": "3.0.6"
   }
 }
