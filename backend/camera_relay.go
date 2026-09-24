@@ -38,7 +38,7 @@ func (h *relayHub) room(id string) *relayRoom {
 	return r
 }
 
-func (r *relayRoom) broadcast(frame []byte) {
+func (r *relayRoom) broadcast(messageType int, frame []byte) {
 	r.mu.Lock()
 	r.lastFrame = frame
 	watchers := make(map[*websocket.Conn]*sync.Mutex, len(r.watchers))
@@ -49,7 +49,7 @@ func (r *relayRoom) broadcast(frame []byte) {
 	for c, m := range watchers {
 		m.Lock()
 		_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		err := c.WriteMessage(websocket.BinaryMessage, frame)
+		err := c.WriteMessage(messageType, frame)
 		m.Unlock()
 		if err != nil {
 			_ = c.Close()
@@ -57,7 +57,7 @@ func (r *relayRoom) broadcast(frame []byte) {
 	}
 }
 
-func (r *relayRoom) addWatcher(c *websocket.Conn) *sync.Mutex {
+func (r *relayRoom) addWatcher(c *websocket.Conn, messageType int) *sync.Mutex {
 	m := &sync.Mutex{}
 	r.mu.Lock()
 	r.watchers[c] = m
@@ -66,7 +66,7 @@ func (r *relayRoom) addWatcher(c *websocket.Conn) *sync.Mutex {
 	if last != nil {
 		m.Lock()
 		_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		_ = c.WriteMessage(websocket.BinaryMessage, last)
+		_ = c.WriteMessage(messageType, last)
 		m.Unlock()
 	}
 	return m
@@ -96,6 +96,8 @@ var relayUpgrader = websocket.Upgrader{
 func (a *App) relayRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/v1/cameras/{id}/publish", a.publishCamera)
 	m.HandleFunc("GET /api/v1/cameras/{id}/watch", a.watchCamera)
+	m.HandleFunc("GET /api/v1/cameras/{id}/detections/publish", a.publishDetections)
+	m.HandleFunc("GET /api/v1/cameras/{id}/detections/watch", a.watchDetections)
 }
 
 // publishCamera receives JPEG frames from the device that physically owns
@@ -106,7 +108,7 @@ func (a *App) publishCamera(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
-	room := a.relay.room(r.PathValue("id"))
+	room := a.relay.room("video:" + r.PathValue("id"))
 	conn.SetReadLimit(maxRelayFrame)
 	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	conn.SetPongHandler(func(string) error {
@@ -119,7 +121,7 @@ func (a *App) publishCamera(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if mt == websocket.BinaryMessage && len(data) > 0 {
-			room.broadcast(data)
+			room.broadcast(websocket.BinaryMessage, data)
 		}
 	}
 }
@@ -133,8 +135,61 @@ func (a *App) watchCamera(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
-	room := a.relay.room(r.PathValue("id"))
-	room.addWatcher(conn)
+	room := a.relay.room("video:" + r.PathValue("id"))
+	room.addWatcher(conn, websocket.BinaryMessage)
+	defer room.removeWatcher(conn)
+	conn.SetReadLimit(1024)
+	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+	}
+}
+
+const maxDetectionMessage = 64 * 1024
+
+// publishDetections receives person/gender detection JSON from the
+// inference service (see inference/main.py) for one camera and
+// rebroadcasts it to every browser watching that camera's overlay.
+func (a *App) publishDetections(w http.ResponseWriter, r *http.Request) {
+	conn, err := relayUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	room := a.relay.room("det:" + r.PathValue("id"))
+	conn.SetReadLimit(maxDetectionMessage)
+	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+		return nil
+	})
+	for {
+		mt, data, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		if mt == websocket.TextMessage && len(data) > 0 {
+			room.broadcast(websocket.TextMessage, data)
+		}
+	}
+}
+
+// watchDetections streams the inference service's JSON results for one
+// camera to a browser drawing the live person/gender overlay.
+func (a *App) watchDetections(w http.ResponseWriter, r *http.Request) {
+	conn, err := relayUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	room := a.relay.room("det:" + r.PathValue("id"))
+	room.addWatcher(conn, websocket.TextMessage)
 	defer room.removeWatcher(conn)
 	conn.SetReadLimit(1024)
 	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))

@@ -34,6 +34,21 @@ const tamaño_real = computed(() => {
     alto: (px[1] / ppx).toFixed(1)
   };
 });
+
+function downloadFile(name: string) {
+  const a = document.createElement('a');
+  a.href = `/api/esan/video/${name}`;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function downloadAllVideos() {
+  const videos = ['cam01_procesado.mp4', 'cam02_procesado.mp4', 'cam03_procesado.mp4', 'mapa_2d.mp4'];
+  // El navegador no deja disparar varias descargas seguidas sin pausa.
+  videos.forEach((name, i) => setTimeout(() => downloadFile(name), i * 400));
+}
 </script>
 
 <template>
@@ -212,13 +227,13 @@ const tamaño_real = computed(() => {
 
         <div class="export-section">
           <h3>📥 Descargas:</h3>
-          <button class="download-btn">
+          <button class="download-btn" @click="downloadFile('trajectory_points.csv')">
             <span>⬇️</span> Descargar CSV de trayectorias
           </button>
-          <button class="download-btn">
+          <button class="download-btn" @click="downloadFile('mapa_trayectorias.png')">
             <span>⬇️</span> Descargar mapa 2D (PNG)
           </button>
-          <button class="download-btn">
+          <button class="download-btn" @click="downloadAllVideos">
             <span>⬇️</span> Descargar todos los videos
           </button>
         </div>

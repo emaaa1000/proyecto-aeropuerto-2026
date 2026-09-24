@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { MapObject } from "./mapObjects";
+type Person = {
+  id: number;
+  box: [number, number, number, number];
+  conf: number;
+  gender: string | null;
+  gender_conf: number | null;
+};
+type Detections = { ts: number; frame_w: number; frame_h: number; people: Person[] };
 const props = defineProps<{
   camera: MapObject;
   taken?: string[];
@@ -24,7 +32,8 @@ const video = ref<HTMLVideoElement>(),
   // true when this feed is not the local camera but a relay of another
   // device's camera (e.g. viewing the phone's cam from the laptop).
   watching = ref(false),
-  frameUrl = ref("");
+  frameUrl = ref(""),
+  detections = ref<Detections>();
 let stream: MediaStream | undefined,
   timer: ReturnType<typeof setInterval> | undefined,
   previous: Uint8ClampedArray | undefined,
@@ -32,7 +41,9 @@ let stream: MediaStream | undefined,
   watchSocket: WebSocket | undefined,
   publishSocket: WebSocket | undefined,
   publishTimer: ReturnType<typeof setInterval> | undefined,
-  watchRetry: ReturnType<typeof setTimeout> | undefined;
+  watchRetry: ReturnType<typeof setTimeout> | undefined,
+  detectSocket: WebSocket | undefined,
+  detectRetry: ReturnType<typeof setTimeout> | undefined;
 const buffer = document.createElement("canvas");
 buffer.width = 160;
 buffer.height = 90;
@@ -96,7 +107,7 @@ function sendFrame() {
     publishSocket?.readyState !== WebSocket.OPEN
   )
     return;
-  const w = 480,
+  const w = 640,
     h = Math.round((video.value.videoHeight / video.value.videoWidth) * w) || 270;
   if (publishCanvas.width !== w || publishCanvas.height !== h) {
     publishCanvas.width = w;
@@ -162,6 +173,48 @@ function startWatching() {
   };
   socket.addEventListener("close", retry);
   socket.addEventListener("error", () => socket.close());
+}
+function stopDetections() {
+  clearTimeout(detectRetry);
+  detectRetry = undefined;
+  detections.value = undefined;
+  if (detectSocket) {
+    const s = detectSocket;
+    detectSocket = undefined;
+    s.close();
+  }
+}
+function startDetections() {
+  if (detectSocket) return;
+  clearTimeout(detectRetry);
+  const socket = new WebSocket(
+    wsUrl(`/api/v1/cameras/${props.camera.id}/detections/watch`),
+  );
+  detectSocket = socket;
+  socket.addEventListener("message", (ev) => {
+    try {
+      const msg = JSON.parse(ev.data) as Detections;
+      detections.value = msg;
+      // Keep the overlay's coordinate space matching what's actually
+      // displayed, in both local and relayed-watch modes.
+      if (msg.frame_w > 0 && msg.frame_h > 0)
+        aspect.value = `${msg.frame_w} / ${msg.frame_h}`;
+    } catch {
+      // ignore malformed message
+    }
+  });
+  socket.addEventListener("close", () => {
+    if (detectSocket !== socket) return;
+    detectSocket = undefined;
+    detectRetry = setTimeout(startDetections, 3000);
+  });
+  socket.addEventListener("error", () => socket.close());
+}
+function personLabel(p: Person) {
+  const base = `L${p.id}`;
+  if (!p.gender) return base;
+  const pct = p.gender_conf != null ? ` ${Math.round(p.gender_conf * 100)}%` : "";
+  return `${base} · ${p.gender}${pct}`;
 }
 function stop() {
   clearInterval(timer);
@@ -321,10 +374,12 @@ function processFrame() {
 }
 onMounted(() => {
   if (props.configurable) refreshDevices();
+  else startDetections();
   navigator.mediaDevices?.addEventListener("devicechange", refreshDevices);
 });
 onUnmounted(() => {
   stop();
+  stopDetections();
   navigator.mediaDevices?.removeEventListener("devicechange", refreshDevices);
 });
 defineExpose({ stop });
@@ -353,6 +408,24 @@ defineExpose({ stop });
         ><video ref="video" muted playsinline></video
         ><canvas ref="overlay" width="160" height="90"></canvas
       ></template>
+      <svg
+        v-if="active && detections?.people.length"
+        class="detect-overlay"
+        :viewBox="`0 0 ${detections.frame_w} ${detections.frame_h}`"
+        preserveAspectRatio="none"
+      >
+        <g v-for="p in detections.people" :key="p.id">
+          <rect
+            :x="p.box[0]"
+            :y="p.box[1]"
+            :width="p.box[2] - p.box[0]"
+            :height="p.box[3] - p.box[1]"
+            vector-effect="non-scaling-stroke"
+          />
+          <text :x="p.box[0]" :y="Math.max(14, p.box[1] - 6)" class="detect-label-stroke">{{ personLabel(p) }}</text>
+          <text :x="p.box[0]" :y="Math.max(14, p.box[1] - 6)" class="detect-label-fill">{{ personLabel(p) }}</text>
+        </g>
+      </svg>
       <p v-if="active && watching && !frameUrl">
         Conectando con la cámara remota…
       </p>

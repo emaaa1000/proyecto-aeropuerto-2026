@@ -32,6 +32,20 @@ services:
       retries: 12
       start_period: 10s
     restart: unless-stopped
+  inference:
+    build: ./inference
+    environment:
+      # Cada cuántos segundos se analiza un frame por cámara. Medido en la
+      # propia máquina (sin GPU): YOLO26m ~0.5s + clip_genero ~0.1s/persona
+      # ya con el modelo caliente, así que 1s deja margen sin acumular
+      # atraso. No da para 30fps (eso requeriría GPU o modelos más chicos).
+      PROCESS_INTERVAL_S: "1.0"
+    volumes:
+      - ./Modelo/Modelo:/Modelo/Modelo:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
   web:
     build: ./web
     ports:
