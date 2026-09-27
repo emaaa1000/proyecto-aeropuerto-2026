@@ -1,10 +1,17 @@
-# LAP · plano local, cámaras e insights
+# AeroVision · analítica espacial de personas por sitio
 
-Demostración para Lima Airport Partners (Aeropuerto Internacional Jorge Chávez). Aplicación Go + PostgreSQL/PostGIS + Vue 3 en Docker. El plano se sirve como SVG local derivado de la geometría real del nivel 3, dibujado con el norte hacia arriba; el control en vivo lo muestra girado a horizontal y el editor en vertical. No usa Google Maps, MapLibre, iframes ni mosaicos externos durante la visualización.
+Plataforma para Lima Airport Partners: transforma video de cámaras en trayectorias anónimas sobre un plano 2D y, a partir de ellas, en indicadores operativos y comerciales. Funciona igual para cualquier **sitio** (LAP · Jorge Chávez, ESAN o uno nuevo): cada sitio tiene su plano calibrado, cámaras, locales, zonas y las sesiones que procesa el modelo.
+
+```
+CCTV / dataset → Modelo LAP01 (Python, GPU) → API Go → PostgreSQL/PostGIS → Web Vue
+                 Parte I   tracking local
+                 Parte II  Re-ID multicámara + mapa 2D      → sessions, identities, tracklets, trajectory_points
+                 Parte III histórico e insights             → zone_id, spatial_events, session_analytics
+```
 
 ## Enlaces del proyecto
 
-- **Aplicación en el servidor:** http://35.239.224.191/mapa
+- **Aplicación en el servidor:** http://35.239.224.191/
 - **Presentación Canva:** https://canva.link/s9381tjj12znjbi
 - **Informe:** https://www.overleaf.com/4988787614zrfjthnvgdhr#5a9571
 - **Carpeta de Drive:** https://drive.google.com/drive/folders/1OH2wUcujzm-cPwITiiukz6uNG6pCSm8Q
@@ -16,94 +23,97 @@ Demostración para Lima Airport Partners (Aeropuerto Internacional Jorge Chávez
 docker compose up -d --build
 ```
 
-- **En vivo:** http://localhost:8080/mapa (LAP) · http://localhost:8080/mapa/esan (ESAN)
-- **Insights:** http://localhost:8080/insights (LAP) · http://localhost:8080/insights/esan (ESAN)
-- **Configuración:** http://localhost:8080/configuracion (LAP) · http://localhost:8080/configuracion/esan (ESAN)
-- **Cámara del teléfono:** http://localhost:8080/telefono
+Web en http://localhost:8080 (usuario y contraseña de la demo: `LAP` / `LAP`). Cada sección es la misma para todos los sitios: `/sitios/<sitio>/en-vivo`, `/sitios/<sitio>/insights` y `/sitios/<sitio>/configuracion`, con pestañas para cambiar de sitio. `/telefonos` procesa cámaras de teléfono en vivo.
 
-Cada sección tiene un selector **LAP · Jorge Chávez | ESAN** arriba.
+Los datos se conservan en el volumen `aeropuerto-demo_pgdata`. La base se crea vacía con dos sitios (ESAN y LAP) y **sin datos de ejemplo**: todo lo que muestra lo publica el modelo o se configura en la web.
 
-Requiere Docker/Compose. Internet se necesita para descargar imágenes y dependencias inicialmente, no para visualizar el plano una vez construida la aplicación. Los datos se conservan en `aeropuerto-demo_pgdata`. Para detener sin borrarlos: `docker compose stop`.
+## Flujo de trabajo
 
-## Uso del plano y editor
+1. **Procesar un dataset (Partes I y II).** `Modelo/Build Modelo/Build_Modelo.ipynb` procesa los videos de `Modelo/dataset/` (YOLO26m, seguidor local, YOLO26s-ReID, mapa 2D y género con CLIP), exporta a `Build Modelo/Ouput/` y publica la sesión en el sitio `SITIO` (`POST /api/v1/sites/<sitio>/sessions`): plano calibrado, cámaras, identidades, tracklets y cada punto de trayectoria.
+2. **Configurar el plano (web → Configuración).** Mover y girar cámaras arrastrándolas, registrar y editar **locales**, eliminar sesiones y dibujar sus zonas **INTERIOR** (ingreso) y **FRONTAGE** (frente), más zonas operativas (pasillo, entrada, cola, check-in, seguridad, puerta). Todo se guarda en PostGIS; volver a publicar el Build no pisa una cámara movida a mano.
 
-Las dos pantallas tienen papeles separados. **Cámaras y zonas** es donde se configura: dibujar áreas, ubicar cámaras y asignarles el dispositivo de video. **Reproducción** solo observa: el plano ocupa el ancho completo en horizontal y por encima corre una línea de tiempo que reproduce lo que quedó registrado en la base. Ahí no se edita nada.
+   El **dibujo del plano** (fondo SVG de `web/public/planos/`, contorno exacto del piso y **obstáculos**: la huella de lo que nadie atraviesa, como la carpa o una máquina) se guarda aparte del Build (`PUT /api/v1/sites/<sitio>/plano`). El de ESAN sale de un levantamiento desde las cámaras: `Modelo/Build Modelo/plano_esan/levantamiento.json` marca píxeles del suelo (murete, descanso bajo el entrepiso, tramo de la L que sube al norte, puertas de los ascensores, carpa azul, expendedoras, tacho, reciclaje) y `generar_plano.py` los pasa a metros con las homografías del Build. El 100 % de los puntos de cam01 y cam02 y el 99,6 % de los de cam03 caen dentro de ese piso.
 
-El plano está fijo mientras se visualiza. En **Cámaras y zonas**, cualquiera de los dos botones de creación activa la edición, que habilita zoom y desplazamiento:
+   ```bash
+   python "Modelo/Build Modelo/plano_esan/generar_plano.py" --publicar --zonas
+   ```
 
-1. **Puesto / zona:** marca al menos tres vértices y pulsa **Cerrar y pintar**. Desde tres puntos el área se rellena en vivo con el color del tipo elegido (puesto de venta, pasillo, entrada, cola, frente comercial u otra), que puedes sobrescribir a mano.
-2. **Asignar cámara:** haz clic en su ubicación y configura nombre, fuente, color y orientación.
-3. **Cobertura:** selecciona una cámara, dibuja su polígono y termina. Arrastra sus vértices para modificarlo.
-4. **Guardar cambios:** persiste el objeto; **Cancelar** descarta el borrador. Se confirma antes de borrar o abandonar cambios pendientes.
-5. **Eliminar:** cada elemento de la lista lateral lleva su propia ✕ para borrarlo sin abrirlo, y el formulario mantiene **✕ Eliminar elemento** para el que estés editando. Ambos piden confirmación y viajan con el número de revisión, así que si otro navegador lo cambió antes el servidor responde 409 en vez de borrar a ciegas.
+   `--zonas` crea las zonas de `zonas_iniciales.json` (Piso, Ascensores, Tacho, Reciclaje, Expendedora negra, Expendedora roja y el local Carpa azul) solo si el sitio aún no tiene zonas; después se editan desde la web.
+3. **Procesamiento histórico (Parte III).**
 
-El seed `backend/seeds/003_zones.sql` sitúa las zonas de demostración sobre un local comercial real del plano (2 381 m²) y su acera de 7 m, en metros del plano. Los objetos que dibujas se guardan aparte, en `map_objects` (`backend/migrations/008_create_map_objects.sql`), WGS84/SRID 4326. El servidor rechaza polígonos cruzados, más de 100 vértices, coordenadas fuera del entorno del aeropuerto y revisiones obsoletas. El nivel habilitado es el 3.
+   ```bash
+   python "Modelo/Insights Modelo/insights_historicos.py" --sitio esan
+   ```
 
-## Cámara USB o portátil
+   Lee de la base los puntos de la sesión, el plano y los locales y zonas configurados. Primero lleva cada posición al **piso transitable**: la que cae fuera del piso o dentro (o a menos de 0,2 m) de un obstáculo pasa al punto libre más cercano, y si dos cámaras promedian dentro de un obstáculo se unen fuera de él; la base guarda la posición ajustada (En vivo e Insights la usan) y conserva la del modelo en `raw_x`/`raw_y`. Después calcula: consolidación de observaciones simultáneas, zona de cada posición (INTERIOR primero, luego la de menor área), eventos espaciales (EXPOSURE, ENTER, DWELL, EXIT, RETURN, QUEUE; una salida o un roce del INTERIOR más corto que la tolerancia de 1 s se trata como ruido del borde), mapa de calor KDE (ocupación y visitantes únicos), rutas frecuentes con PrefixSpan, grafo origen-destino, permanencia, visitas, exposición, tasa de captación, densidad, congestión y las series por intervalo del tablero. Lo publica en `trajectory_points.zone_id`, `spatial_events` y `session_analytics`. Parámetros versionados en `Modelo/Insights Modelo/config_insights.json`; `--exportar` guarda además CSV/JSON en `Insights Modelo/Ouput/<sitio>/`. Vuelve a ejecutarlo cada vez que cambies locales o zonas: Insights avisa cuando el análisis quedó desactualizado.
+4. **Ver resultados (web → En vivo / Insights).** En vivo reproduce la sesión sobre el plano con los videos sincronizados; Insights es un tablero de métricas (mapas de movimiento y de calor, comparación entre zonas, rutas, personas, visitas, exposición, permanencia, captación, densidad, entradas por intervalo y flujos), filtrable por sesión y zona y exportable a PDF y CSV.
 
-Asigna una cámara con fuente **webcam**. En **Cámaras y zonas**, selecciona la cámara, pulsa **Activar cámara** y concede el permiso del navegador; el video aparece dentro del panel de propiedades. Se prefiere una cámara identificada como USB/UVC que ninguna otra tenga asignada; también puedes elegirla en **Dispositivo de video**. **Detener** libera la cámara. Al salir de la página se detiene la captura.
+**Cámaras de teléfono.** La app Android de `app-android/` convierte cada teléfono en cámara IP (MJPEG con token). En la web se agregan en **Teléfonos** y `python "Modelo/Test Modelo/camara_telefono.py"` corre el modelo final en la GPU sobre todos a la vez, con un mismo ID por persona entre teléfonos. **No se guarda nada**: todo vive en memoria y se borra al cerrar el servicio. Sin teléfono: `python "Modelo/Test Modelo/simular_telefono.py"`.
 
-El dispositivo que queda en uso se escribe en el borrador como `webcam:<deviceId>` y se persiste al pulsar **Guardar cambios**, así que se conserva al recargar. En Mapa en vivo las cámaras sin dispositivo asignado no se pueden activar: indican que hay que configurarlas primero. Ese dispositivo deja de ofrecerse en las demás cámaras; si todas las detectadas ya están asignadas, la cámara restante no se puede activar hasta liberar una. Los navegadores solo revelan la lista de dispositivos tras conceder el permiso, y el `deviceId` cambia si borras los datos del sitio: entonces hay que volver a elegirlo.
+## Estructura
 
-El video es real y se procesa localmente en el navegador: diferencias RGB entre frames, porcentaje de movimiento y rectángulo del área cambiante, aproximadamente 6–7 análisis/s. No se envían imágenes a Go ni se almacenan grabaciones. No es detección de personas ni YOLO/ByteTrack/TransReID.
-
-La cámara pertenece al equipo donde se abre el navegador, no al contenedor Docker. No requiere montar `/dev/video` en Docker. Usar `localhost` o HTTPS. Las URLs RTSP todavía requieren un puente de streaming; registrarlas no inicia reproducción. Nunca incluir credenciales en el campo fuente.
-
-## Mapas e insights
-
-A la izquierda se muestran mapa de movimiento (hasta 40 recorridos recientes) y mapa de calor ponderado por segundos-persona. A la derecha están visitas, exposición, captación, permanencia y gráfica por minuto. Filtros: 15 minutos, una hora o 24 horas.
-
-La aplicación **no genera movimiento**: reproduce el que ya está almacenado. Cada `global_id` (`sessions.id`) se reconstruye ordenando sus `positions` por `observed_at`, y Vue interpola entre observaciones consecutivas para animarlo sin saltos. Los datos actualmente cargados provienen de una simulación previa; **el modelo de detección y tracking todavía no está integrado**, y su lugar es precisamente el de productor de esas mismas tablas.
-
-El control temporal vive en el navegador: reproducir, pausar, reiniciar, arrastrar la barra y elegir velocidad (0,5× a 20×). El backend entrega la ventana completa una sola vez y Vue avanza el reloj; no hay sondeo por segundo.
-
-Capas conmutables sobre el plano: pasajeros en movimiento, trayectorias (últimos N segundos o recorrido completo), zonas configuradas con su recuento actual, cámaras y mapa de calor. Cada punto trae su estado —en movimiento o detenido, según la velocidad real entre observaciones— y la zona que lo cubre. Al seleccionar a una persona se aísla su recorrido histórico completo y sus eventos.
-
-Indicadores recalculados en el instante reproducido: personas activas, personas y densidad por zona (`ST_Area` de cada polígono), visitas, pass-by, permanencia media, expuestos, captados y captura. Los flujos entre zonas salen de las transiciones consecutivas registradas en `events`.
-
-Solo se muestran identificadores anónimos; no hay ningún dato personal en la base. El heatmap es relativo y no expresa personas/m² calibradas. El SVG conserva geometrías del plano real con un estilo local; no incluye todos los rótulos originales. La proyección geográfica permite conservar la ubicación de cámaras y zonas al editar. El anclaje de los recorridos cargados sigue siendo ilustrativo mientras no haya calibración cámara-plano. Ver [metadatos del plano](web/public/maps/README.md).
-
-## Desarrollo y pruebas
-
-```bash
-# Frontend (Node 22):
-cd web
-npm ci
-npm run build
 ```
-
-El Dockerfile del backend ejecuta `go test ./...` al construir. Para verificar PostGIS, el ciclo completo de visitas y los indicadores en una base de pruebas separada:
-
-```bash
-bash scripts/test-integration.sh
+backend/                      Go · arquitectura hexagonal (núcleo + adaptadores)
+  cmd/api/main.go             arranque: configuración, conexión, migraciones y servidor
+  internal/core/domain/       entidades, validaciones y errores (sin HTTP ni SQL)
+  internal/core/ports/        interfaces de repositorios
+  internal/core/services/     casos de uso (sitios, sesiones, teléfonos) y caché
+  internal/adapters/httpapi/  REST: handlers, rutas y middleware
+  internal/adapters/postgres/ repositorios PostGIS y migrador
+  internal/adapters/memory/   teléfonos (en memoria por diseño)
+  internal/adapters/relay/    WebSocket de video y detecciones
+  internal/app/               composición + pruebas de integración
+  migrations/                 esquema: 001_sitios, 002_plano, 003_modelo, 004_plano_lap, 005_plano_dibujado, 006_posicion_ajustada, 007_extensiones_sin_uso
+web/src/                      Vue 3 + TypeScript
+  core/                       cliente HTTP, router, sesión y estilos
+  shared/                     utilidades comunes
+  features/sitios/            En vivo, Insights, Configuración y el plano
+  features/telefonos/         cámaras de teléfono en vivo
+  features/acceso/            login
+Modelo/Build Modelo/          Partes I y II: construcción del modelo y publicación
+  plano_esan/                 levantamiento del piso de ESAN y zonas iniciales
+Modelo/Test Modelo/           modelo publicado, prueba en tiempo real y teléfonos
+Modelo/Insights Modelo/       Parte III: procesamiento histórico (paquete historico/)
+app-android/                  app Cámara ESAN
 ```
-
-El script usa Docker, crea `aeropuerto_test` y solo limpia las tablas de esa base. Si cambias la contraseña, exporta `DB_PASSWORD` con el mismo valor antes de ejecutarlo. La prueba verifica una visita de 27 segundos, 50% de captación para dos personas, una sola entrada/salida, rechazo de filtros inválidos y censura tras un reinicio.
-
-## Modelo LAP01 (ESAN) y cámara del teléfono
-
-- `Modelo/Build Modelo/Build_Modelo.ipynb` procesa los videos de `Modelo/dataset/` (YOLO26m, tracking, Re-ID multicámara, mapa 2D, género), exporta a `Build Modelo/Ouput/`, publica el modelo en `Modelo/Test Modelo/Modelo/` y **guarda la sesión en PostgreSQL** (`POST /api/v1/esan/sessions`: `analysis_sessions`, `identities`, `tracklets`, `trajectory_points`, más el plano y las cámaras). La web la muestra en En vivo / Insights → ESAN.
-- **Cámara del teléfono:** la app Android de `app-android/` convierte el teléfono en cámara IP (MJPEG con token). `python "Modelo/Test Modelo/camara_telefono.py"` corre el modelo final en la GPU sobre esa URL, publica video y detecciones a la web por WebSocket y guarda la sesión en la base cada 15 s. Sin teléfono: `python "Modelo/Test Modelo/simular_telefono.py"`.
-- `Modelo/LAP01_Multitracking.ipynb` queda como guía del modelo original.
-
-API de ESAN: `GET /api/v1/esan/config`, `PUT /api/v1/esan/cameras/{id}`, `POST|PUT|DELETE /api/v1/esan/zones`, `GET|POST /api/v1/esan/sessions`, `GET /api/v1/esan/sessions/{id}/replay`, `GET /api/v1/esan/sessions/{id}/insights`.
 
 ## API
 
-- `GET /api/v1/replay`: reproducción histórica completa de una ventana (trayectorias por `global_id`, eventos, zonas y flujos).
-- `GET /api/v1/replay/metrics?at=<RFC3339>`: indicadores en el instante reproducido.
-- `GET /api/v1/insights/summary`: indicadores agregados de la ventana y serie por minuto.
-- `GET /api/v1/insights/spatial`: trayectorias, calor por segundos-persona y flujos entre zonas.
+Todas las rutas de sitio siguen `/api/v1/sites/<sitio>/…`:
 
-Las cuatro aceptan la misma ventana temporal: `minutes=N` (por defecto la última hora **terminada en la observación más reciente**, no en el reloj del servidor), `from`/`to` en RFC3339, o `date=AAAA-MM-DD` con `hour=0..23` o `time_slot=night|morning|afternoon|evening`. Todas son de solo lectura.
-- `GET/POST /api/v1/map-objects`: listar/crear configuración.
-- `PUT /api/v1/map-objects/{id}`: modificar con revisión.
-- `DELETE /api/v1/map-objects/{id}?revision=N`: eliminar.
-- `GET /health/ready`: disponibilidad de PostgreSQL.
+| Método y ruta | Uso |
+|---|---|
+| `GET /api/v1/sites` · `POST` · `PUT/DELETE /{sitio}` | sitios (se borra solo un sitio sin sesiones) |
+| `GET /{sitio}/config` | sitio, plano calibrado, dibujo del plano, cámaras, locales y zonas |
+| `PUT /{sitio}/plano` | dibujo del plano: fondo `/planos/*.svg`, contorno del piso y obstáculos en metros |
+| `POST /{sitio}/cameras` · `PUT/DELETE /{sitio}/cameras/{id}` | cámaras (pose en metros; no se borra una cámara con trayectorias) |
+| `POST /{sitio}/locales` · `PUT/DELETE /{sitio}/locales/{id}` | locales comerciales |
+| `POST /{sitio}/zones` · `PUT/DELETE /{sitio}/zones/{id}` | zonas (INTERIOR y FRONTAGE exigen local) |
+| `GET/POST /{sitio}/sessions` · `DELETE /{sitio}/sessions/{id}` | sesiones del modelo (el Build publica con POST) |
+| `GET /{sitio}/sessions/{id}/replay` · `/insights` | reproducción y agregados SQL |
+| `GET /{sitio}/sessions/{id}/points` · `GET/PUT /analytics` | entrada (posiciones del modelo) y resultados de la Parte III (zona y posición ajustada de cada punto, eventos, análisis) |
+| `GET /{sitio}/media/{archivo}` | archivos exportados por el Build |
+| `GET/POST /api/v1/telefonos` · `DELETE /{id}` | teléfonos (solo en memoria) |
+| `/api/v1/cameras/{id}/publish·watch·detections/…` | relé WebSocket de video y detecciones |
+| `GET /health/live` · `/health/ready` | salud del servicio y de PostgreSQL |
+
+## Modelo de datos
+
+PostgreSQL 17 + PostGIS, coordenadas del plano en metros (SRID 0), tiempos con zona horaria. `sites` (plano calibrado del Build y dibujo del plano, en JSON) → `cameras`, `locales`, `zones` (polígono, área calculada, INTERIOR/FRONTAGE ligadas a un local) → `sessions` → `identities` → `tracklets` → `trajectory_points` (posición sobre el piso transitable y la original del modelo en `raw_x`/`raw_y`, geom calculada, `zone_id` de la Parte III), `spatial_events` (duración calculada) y `session_analytics` (KDE, rutas, origen-destino, métricas y parámetros). Ninguna tabla guarda imágenes, recortes ni embeddings.
+
+## Pruebas
+
+```bash
+bash scripts/test-integration.sh                                 # backend: unitarias + integración con PostGIS
+cd web && npm ci && npm run build                                # web: tipos (vue-tsc) y build
+python -m unittest discover -s "Modelo/Insights Modelo/tests"    # Parte III con trayectorias sintéticas
+```
+
+El Dockerfile del backend ejecuta `go vet` y `go test` al construir. La prueba de integración crea una base `aeropuerto_test` desechable (se borra al terminar) y recorre el ciclo completo: sitios, importación de sesiones, cámaras con pose manual, locales, zonas, Parte III y archivos.
 
 ## Despliegue en un servidor
 
-Por defecto la web se publica solo en `127.0.0.1`. Para servirla por la IP pública del servidor, crea un `.env` con:
+Por defecto la web se publica solo en `127.0.0.1`. Para servirla por la IP pública, crea un `.env` con:
 
 ```bash
 BIND_ADDR=0.0.0.0
@@ -111,17 +121,9 @@ WEB_PORT=80
 DB_PASSWORD=<una contraseña propia, no la del ejemplo>
 ```
 
-y levanta con `docker compose up -d --build`. nginx añade `nosniff`, `SAMEORIGIN`, `Referrer-Policy` y un límite de 30 peticiones por segundo por IP sobre `/api/`. PostgreSQL y el backend siguen sin publicar puerto al host.
+y levanta con `docker compose up -d --build`. nginx añade `nosniff`, `SAMEORIGIN`, `Referrer-Policy` y un límite de peticiones por IP sobre `/api/`; PostgreSQL y el backend no publican puertos al host.
 
-Dos límites que hay que conocer antes de abrirla:
+- **Acceso:** el login es de demostración (se valida en el navegador). Antes de un uso real hace falta autenticación en el backend: cualquiera que alcance la IP puede modificar la configuración.
+- **Cámaras del navegador y teléfonos:** los navegadores solo dan acceso a la cámara en `localhost` o HTTPS (la web también escucha en 8443 con un certificado autofirmado).
 
-- **No hay autenticación.** Cualquiera que alcance la IP puede ver el plano y **crear, editar o borrar** cámaras y zonas. Antes de un uso real hace falta acceso autenticado delante de la aplicación.
-- **La cámara USB no funcionará por HTTP público.** Los navegadores solo conceden `getUserMedia` en `localhost` o sobre HTTPS. Por IP y sin TLS, el botón **Activar cámara** fallará; el resto de la demostración funciona igual. Para recuperarla hace falta un certificado (dominio con Let's Encrypt, o uno autofirmado asumiendo el aviso del navegador).
-
-## Alcance y evolución
-
-Demo sin autenticación. PostgreSQL no publica puerto al host.
-
-Pendiente: modelos preentrenados, procesamiento Go/GPU del video, ingestión RTSP, calibración cámara-plano, asociación multicámara, métricas de personas reales, retención automática y HA. La cámara USB no reemplaza estos componentes. Detener la demo cuando no se use para evitar crecimiento indefinido del histórico.
-
-Arquitectura objetivo: [FLUJO_IMPLEMENTACION.md](FLUJO_IMPLEMENTACION.md).
+Diseño original de la arquitectura: [FLUJO_IMPLEMENTACION.md](FLUJO_IMPLEMENTACION.md).

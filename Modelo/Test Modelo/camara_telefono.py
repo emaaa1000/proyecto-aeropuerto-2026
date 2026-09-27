@@ -1,4 +1,8 @@
-"""Cámara del teléfono en vivo: lee el MJPEG de la app Android, corre el modelo final (GPU) y publica en la web."""
+"""Teléfonos en vivo: lee el MJPEG de cada app Cámara ESAN, corre el modelo final (GPU) sobre todos a la vez y publica en la web.
+
+No se guarda nada, ni en la base ni en disco: identidades, recorridos y conteos viven en la memoria de este proceso
+y se borran al cerrarlo (o al cambiar la lista de teléfonos en la web).
+"""
 import argparse
 import json
 import os
@@ -6,9 +10,8 @@ import sys
 import threading
 import time
 import urllib.request
-import uuid
 import warnings
-from datetime import datetime
+from collections import Counter, deque
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -29,20 +32,15 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"websocke
 
 import lap01
 
-CAMARA = "esan-movil"
+CANAL_ESTADO = "telefonos"
 ANCHO_RELEVO = 640
+FPS_NOMINAL = 15.0
 
 
 def leer_json(url, timeout=5):
     """GET de un JSON de la web."""
     with urllib.request.urlopen(url, timeout=timeout) as respuesta:
         return json.loads(respuesta.read().decode("utf-8"))
-
-
-def fuente_telefono(url_web):
-    """URL del MJPEG del teléfono guardada en la web (Cámara del teléfono), o None."""
-    camaras = leer_json(f"{url_web}/api/v1/esan/config")["cameras"]
-    return next((c["stream_uri"] or None for c in camaras if c["camera_id"] == CAMARA), None)
 
 
 def sin_token(url):
@@ -52,32 +50,58 @@ def sin_token(url):
 
 
 class LectorMjpeg:
-    """Lee el MJPEG del teléfono en un hilo y guarda solo el último frame."""
+    """Lee el MJPEG de un teléfono en un hilo, reconectando si se corta, y guarda solo el último frame."""
 
     def __init__(self, url):
-        self.url, self.cap = url, cv2.VideoCapture(url, cv2.CAP_FFMPEG)
-        fps = self.cap.get(cv2.CAP_PROP_FPS)
-        self.fps = fps if 1 <= fps <= 60 else 15.0
+        self.url = url
+        self.leidos, self.error = 0, None
         self._ultimo, self._lock, self._parar = None, threading.Lock(), threading.Event()
-        self.leidos, self.terminado = 0, False
         self._hilo = threading.Thread(target=self._leer, daemon=True)
         self._hilo.start()
 
+    @property
+    def conectado(self):
+        """Hubo un frame en los últimos 3 s."""
+        with self._lock:
+            return self._ultimo is not None and time.perf_counter() - self._ultimo[2] < 3
+
+    @property
+    def estado(self):
+        """procesando (llegan frames), sin_conexion (falló el último intento) o conectando."""
+        return "procesando" if self.conectado else ("sin_conexion" if self.error else "conectando")
+
     def _leer(self):
-        """Lee frames mientras lleguen; varios fallos seguidos cierran la fuente."""
-        fallos = 0
-        while not self._parar.is_set() and fallos < 30:
-            ok, frame = self.cap.read() if self.cap.isOpened() else (False, None)
-            if not ok:
-                fallos += 1
-                time.sleep(0.1)
+        """Conecta y lee partes multipart (con Content-Length); ante un fallo espera 2 s y reintenta."""
+        while not self._parar.is_set():
+            try:
+                with urllib.request.urlopen(self.url, timeout=5) as respuesta:
+                    self._leer_partes(respuesta)
+            except Exception as error:
+                self.error = f"No se pudo leer {sin_token(self.url)}: {getattr(error, 'reason', None) or error}"
+            self._parar.wait(2)
+
+    def _leer_partes(self, respuesta):
+        """Decodifica cada JPEG del stream y lo deja como el más reciente."""
+        while not self._parar.is_set():
+            linea = respuesta.readline(1024)
+            if not linea:
+                raise ConnectionError("el teléfono cerró la transmisión")
+            if not linea.startswith(b"--"):
                 continue
-            fallos = 0
+            largo = None
+            while cabecera := respuesta.readline(1024).strip():
+                nombre, _, valor = cabecera.partition(b":")
+                if nombre.strip().lower() == b"content-length":
+                    largo = int(valor)
+            if not largo:
+                raise ValueError("el stream MJPEG no indica Content-Length")
+            frame = cv2.imdecode(np.frombuffer(respuesta.read(largo), np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                continue
             self.leidos += 1
+            self.error = None
             with self._lock:
                 self._ultimo = (self.leidos, frame, time.perf_counter())
-        self.terminado = True
-        self.cap.release()
 
     def tomar(self, despues_de):
         """(número, frame, llegada) del frame más reciente posterior a `despues_de`, o None."""
@@ -85,48 +109,46 @@ class LectorMjpeg:
             return self._ultimo if self._ultimo is not None and self._ultimo[0] > despues_de else None
 
     def detener(self):
-        """Termina la lectura."""
+        """Termina la lectura (el hilo sale en cuanto vence su espera)."""
         self._parar.set()
-        self._hilo.join(timeout=3)
 
 
 class Relevo:
-    """Conexiones WebSocket con la web: video del teléfono y detecciones para dibujar encima."""
+    """WebSockets con la web: video y detecciones de cada teléfono, más el estado global del servicio."""
 
     def __init__(self, url_web):
-        base = url_web.replace("https://", "wss://").replace("http://", "ws://")
-        self.urls = {"video": f"{base}/api/v1/cameras/{CAMARA}/publish", "detecciones": f"{base}/api/v1/cameras/{CAMARA}/detections/publish"}
+        self.base = url_web.replace("https://", "wss://").replace("http://", "ws://") + "/api/v1/cameras"
         self.sockets, self.reintento = {}, {}
 
-    def _enviar(self, canal, mensaje):
+    def _enviar(self, ruta, mensaje):
         """Envía por un canal, reconectando si hace falta (sin frenar el lazo si la web no está)."""
-        if time.monotonic() < self.reintento.get(canal, 0):
+        if time.monotonic() < self.reintento.get(ruta, 0):
             return
         try:
-            if canal not in self.sockets:
-                self.sockets[canal] = connect(self.urls[canal], max_size=2 ** 20, open_timeout=3)
-            self.sockets[canal].send(mensaje)
+            if ruta not in self.sockets:
+                self.sockets[ruta] = connect(f"{self.base}/{ruta}", max_size=2 ** 20, open_timeout=3)
+            self.sockets[ruta].send(mensaje)
         except Exception:
-            socket = self.sockets.pop(canal, None)
+            socket = self.sockets.pop(ruta, None)
             if socket is not None:
                 socket.close()
-            self.reintento[canal] = time.monotonic() + 2
+            self.reintento[ruta] = time.monotonic() + 2
 
-    def video(self, frame):
+    def video(self, cid, frame):
         """Publica el frame (reducido a 640 px) para que la web lo muestre."""
         alto = round(frame.shape[0] * ANCHO_RELEVO / frame.shape[1])
         ok, jpeg = cv2.imencode(".jpg", cv2.resize(frame, (ANCHO_RELEVO, alto), interpolation=cv2.INTER_AREA),
                                 [cv2.IMWRITE_JPEG_QUALITY, 70])
         if ok:
-            self._enviar("video", jpeg.tobytes())
+            self._enviar(f"{cid}/publish", jpeg.tobytes())
 
-    def detecciones(self, mensaje):
-        """Publica las cajas, IDs, género y estado del modelo."""
-        self._enviar("detecciones", json.dumps(mensaje))
+    def detecciones(self, cid, mensaje):
+        """Publica las cajas, IDs y género de un teléfono."""
+        self._enviar(f"{cid}/detections/publish", json.dumps(mensaje))
 
-    def estado(self, estado, texto):
-        """Publica un estado sin detecciones (esperando fuente, sin conexión...)."""
-        self.detecciones({"ts": time.time(), "frame_w": 0, "frame_h": 0, "people": [], "estado": {"estado": estado, "mensaje": texto}})
+    def estado(self, mensaje):
+        """Publica el estado global del servicio y de cada teléfono."""
+        self._enviar(f"{CANAL_ESTADO}/detections/publish", json.dumps({"ts": time.time(), **mensaje}))
 
     def cerrar(self):
         """Cierra las conexiones."""
@@ -135,168 +157,147 @@ class Relevo:
         self.sockets = {}
 
 
-class SesionTelefono:
-    """Una sesión en vivo del modelo final sobre la cámara del teléfono, guardada en la base cada `checkpoint_s`."""
+class SesionEnMemoria:
+    """El modelo final sobre un conjunto fijo de teléfonos; Re-ID compartido para que una persona tenga un solo ID en todos."""
 
-    def __init__(self, motor, asociador, config, url_web, relevo, primer_frame, fps, fuente, checkpoint_s):
-        self.motor, self.asociador, self.config, self.url_web, self.relevo = motor, asociador, config, url_web, relevo
-        self.fuente, self.checkpoint_s, self.fps = fuente, checkpoint_s, fps
-        alto, ancho = primer_frame.shape[:2]
-        self.metadata = {CAMARA: {"camera_id": CAMARA, "video": sin_token(fuente), "fps": fps, "frames": 0, "duration_s": 0.0,
-                                  "width": ancho, "height": alto, "area": (0, 0, ancho, alto)}}
-        self.session_uuid = uuid.uuid4()
-        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + self.session_uuid.hex[:6]
-        self.inicio = datetime.now().astimezone()
-        self.nombre = f"Teléfono · {self.inicio:%Y-%m-%d %H:%M}"
-        motor.reiniciar({CAMARA: fps})
-        asociador.reiniciar(self.session_uuid)
-        asociador.areas = {CAMARA: (0, 0, ancho, alto)}
-        motor.calentar({CAMARA: primer_frame})
-        self.filas, self.latencias = [], []
-        self.vueltas, self.saltados, self.ultimo, self.t = 0, 0, 0, -1.0
-        self.t0, self.ultimo_guardado, self.busy_s = time.perf_counter(), time.perf_counter(), 0.0
-        self.guardando = None
+    def __init__(self, motor, reid, asociacion, telefonos, clave):
+        self.motor, self.telefonos, self.clave = motor, telefonos, clave
+        config = {"mode": "visual_temporal", "units": "m", "cameras": {cid: {"timestamp_offset": 0.0} for cid in telefonos},
+                  "overlaps": [], "transitions": [], "association": asociacion}
+        self.asociador = lap01.AsociadorMulticamara(reid, config)
+        motor.reiniciar({cid: FPS_NOMINAL for cid in telefonos})
+        self.t0, self.t = time.perf_counter(), -1.0
+        self.ultimo = {cid: 0 for cid in telefonos}
+        self.procesados = {cid: 0 for cid in telefonos}
+        self.saltados = {cid: 0 for cid in telefonos}
+        self.latencias = {cid: deque(maxlen=30) for cid in telefonos}
+        self.tiempos = {cid: deque(maxlen=30) for cid in telefonos}
+        self.personas = {cid: 0 for cid in telefonos}
+        self.generos = {}
 
-    def procesar(self, numero, frame, llegada):
-        """Detecta, sigue, estima género y asigna global_id al frame; publica el resultado en la web."""
-        inicio = time.perf_counter()
-        self.saltados += max(0, numero - self.ultimo - 1)
-        self.ultimo = numero
-        self.vueltas += 1
-        self.t = max(self.t + 1e-3, inicio - self.t0)
-        filas = lap01.procesar_instante(self.motor, self.asociador, self.t, {CAMARA: frame}, {CAMARA: self.vueltas})[CAMARA]
-        latencia = time.perf_counter() - llegada
-        self.latencias.append(latencia)
-        for fila in filas:
-            fila.update(X=None, Y=None, speed=None, direction_deg=None, projection_valid=False)
-        self.filas.extend({**fila, "frame_global": self.vueltas, "timestamp_s": self.t, "camera_id": CAMARA, "frame": numero,
-                           "global_id_online": fila["global_id"], "latencia_s": latencia} for fila in filas)
-        escala = ANCHO_RELEVO / frame.shape[1]
-        personas = []
-        for fila in filas:
-            genero = fila.get("genero") if fila.get("genero") in ("Hombre", "Mujer") else None
-            personas.append({"id": fila["global_id"] if fila["global_id"] is not None else fila["local_id"],
-                             "global_id": fila["global_id"], "local_id": fila["local_id"],
-                             "box": [round(fila[k] * escala, 1) for k in ("x1", "y1", "x2", "y2")],
-                             "conf": round(fila["confidence"], 3), "gender": genero,
-                             "gender_conf": round(fila["confianza_genero"], 3) if genero and fila.get("confianza_genero") else None})
+    def procesar(self, datos):
+        """Un instante con el frame nuevo de cada teléfono que lo tenga; devuelve las filas por teléfono."""
+        self.t = max(self.t + 1e-3, time.perf_counter() - self.t0)
+        frames = {}
+        for cid, (numero, frame, _) in datos.items():
+            self.saltados[cid] += max(0, numero - self.ultimo[cid] - 1)
+            self.ultimo[cid] = numero
+            self.procesados[cid] += 1
+            frames[cid] = frame
+        filas = lap01.procesar_instante(self.motor, self.asociador, self.t, frames, dict(self.procesados))
+        ahora = time.perf_counter()
+        for cid, (_, _, llegada) in datos.items():
+            self.latencias[cid].append(ahora - llegada)
+            self.tiempos[cid].append(ahora)
+            self.personas[cid] = len(filas[cid])
+            for fila in filas[cid]:
+                if fila["global_id"] is not None:
+                    self.generos[fila["global_id"]] = fila.get("genero") or "Sin determinar"
+        return filas
+
+    def fps(self, cid):
+        """FPS procesados de un teléfono en sus últimos 30 frames."""
+        t = self.tiempos[cid]
+        return round((len(t) - 1) / (t[-1] - t[0]), 1) if len(t) > 1 and t[-1] > t[0] else 0.0
+
+    def resumen(self):
+        """Personas únicas (entre todos los teléfonos) y su género, contadas solo en memoria."""
         multi = self.asociador.resumen()
-        reloj = time.perf_counter() - self.t0
-        self.relevo.video(frame)
-        self.relevo.detecciones({"ts": time.time(), "frame_w": ANCHO_RELEVO, "frame_h": round(frame.shape[0] * escala), "people": personas,
-                                 "estado": {"estado": "procesando", "fuente": sin_token(self.fuente), "sesion": str(self.session_uuid),
-                                            "fps": round(self.vueltas / max(reloj, 1e-6), 1),
-                                            "latencia_ms": round(1000 * float(np.median(self.latencias[-30:])), 0),
-                                            "saltados": self.saltados, "personas_ahora": len(personas),
-                                            "personas_total": multi["identidades_globales"], "segundos": round(reloj, 1),
-                                            "dispositivo": self.motor.device}})
-        self.busy_s += time.perf_counter() - inicio
-        if time.perf_counter() - self.ultimo_guardado >= self.checkpoint_s:
-            self.guardar("RUNNING")
-
-    def guardar(self, status):
-        """Reconcilia los IDs y guarda la sesión completa en la base (en segundo plano salvo al cerrar)."""
-        self.ultimo_guardado = time.perf_counter()
-        if not self.filas or (self.guardando is not None and self.guardando.is_alive() and status == "RUNNING"):
-            return
-        resultado = lap01.armar_resultado(
-            self.motor, self.asociador, self.filas, metadata=self.metadata, inicios={CAMARA: 0}, offsets={CAMARA: 0.0},
-            counts={CAMARA: self.vueltas}, fps={CAMARA: self.fps}, status="completo" if status == "DONE" else "en_vivo",
-            session_uuid=self.session_uuid, session_id=self.session_id, inicio_grabacion=self.inicio,
-            first_timestamp=self.filas[0]["timestamp_s"], last_timestamp=self.t,
-            elapsed=time.perf_counter() - self.t0, busy_s=self.busy_s)
-        resultado.resumen["tiempo_real"] = {"fuente": sin_token(self.fuente), "saltados": self.saltados,
-                                            "latencia_mediana_ms": round(1000 * float(np.median(self.latencias)), 1)}
-        carga = lap01.sesion_para_bd(resultado, nombre=self.nombre, kind="LIVE", status=status, config=self.config,
-                                     camaras_nombres={CAMARA: "Cámara del teléfono"})
-        carga["cameras"] = []
-        enviar = lambda: self._publicar(carga, status)
-        if status == "RUNNING":
-            self.guardando = threading.Thread(target=enviar, daemon=True)
-            self.guardando.start()
-        else:
-            if self.guardando is not None:
-                self.guardando.join(timeout=30)
-            enviar()
-
-    def _publicar(self, carga, status):
-        """POST de la sesión; un fallo solo se informa, no corta la cámara."""
-        try:
-            r = lap01.publicar_sesion(carga, self.url_web)
-            print(f"[{datetime.now():%H:%M:%S}] sesión {status}: {r['identities']} personas, {r['points']} puntos ({r['ms']} ms)", flush=True)
-        except Exception as error:
-            print(f"No se pudo guardar la sesión: {error}", flush=True)
+        vigentes = set(self.asociador.confirmadas.values())
+        return {"segundos": round(time.perf_counter() - self.t0, 1), "personas_total": multi["identidades_globales"],
+                "multitelefono": multi["identidades_multicamara"],
+                "genero": dict(Counter(g for publico, g in self.generos.items() if publico in vigentes))}
 
 
-def correr_fuente(motor, asociador, config, url_web, relevo, fuente, checkpoint_s):
-    """Procesa la fuente hasta que se corte, cambie la URL en la web o se pulse Ctrl+C."""
-    lector = LectorMjpeg(fuente)
-    limite = time.monotonic() + 10
-    while lector.tomar(0) is None and not lector.terminado and time.monotonic() < limite:
-        time.sleep(0.05)
-    dato = lector.tomar(0)
-    if dato is None:
-        lector.detener()
-        relevo.estado("sin_conexion", f"No se pudo leer {sin_token(fuente)}: revisa que la app esté transmitiendo y la misma red.")
-        print(f"Sin conexión con {sin_token(fuente)}", flush=True)
-        return
-    sesion = SesionTelefono(motor, asociador, config, url_web, relevo, dato[1], lector.fps, fuente, checkpoint_s)
-    print(f"Procesando {sin_token(fuente)} · sesión {sesion.session_uuid} · {motor.device}", flush=True)
-    revisado = time.monotonic()
-    try:
-        while not lector.terminado:
-            dato = lector.tomar(sesion.ultimo)
-            if dato is None:
-                time.sleep(0.002)
-            else:
-                sesion.procesar(*dato)
-            if time.monotonic() - revisado > 3:
-                revisado = time.monotonic()
-                try:
-                    if fuente_telefono(url_web) != fuente:
-                        print("La URL cambió en la web: se cierra esta sesión.", flush=True)
-                        break
-                except OSError:
-                    pass
-    finally:
-        lector.detener()
-        sesion.guardar("DONE")
+def personas_para_web(filas, ancho):
+    """Cajas escaladas al video relevado, con ID global (o local mientras no se confirma) y género."""
+    escala = ANCHO_RELEVO / ancho
+    personas = []
+    for fila in filas:
+        genero = fila.get("genero") if fila.get("genero") in ("Hombre", "Mujer") else None
+        personas.append({"id": fila["global_id"] if fila["global_id"] is not None else fila["local_id"],
+                         "global_id": fila["global_id"], "local_id": fila["local_id"],
+                         "box": [round(fila[k] * escala, 1) for k in ("x1", "y1", "x2", "y2")],
+                         "conf": round(fila["confidence"], 3), "gender": genero,
+                         "gender_conf": round(fila["confianza_genero"], 3) if genero and fila.get("confianza_genero") else None})
+    return personas
 
 
 def main():
-    """Espera la URL del teléfono en la web y procesa mientras esté disponible."""
+    """Sigue la lista de teléfonos de la web y procesa todos los que estén transmitiendo."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--web", default="http://localhost:8080", help="URL de la web (nginx)")
-    parser.add_argument("--checkpoint", type=float, default=15.0, help="segundos entre guardados en la base")
+    # 127.0.0.1 y no localhost: en Windows localhost prueba antes ::1 (nginx no escucha ahí) y cada petición tarda ~2 s.
+    parser.add_argument("--web", default="http://127.0.0.1:8080", help="URL de la web (nginx)")
     args = parser.parse_args()
     url_web = args.web.rstrip("/")
     config = json.loads((MODELO / "config_lap01.json").read_text())
-    camaras = json.loads((MODELO / "camaras.json").read_text())
-    config_camara = {"mode": "visual_temporal", "units": "m", "cameras": {CAMARA: {"timestamp_offset": 0.0}},
-                     "overlaps": [], "transitions": [], "association": camaras.get("association", {})}
+    asociacion = json.loads((MODELO / "camaras.json").read_text()).get("association", {})
     print("Cargando el modelo final (YOLO26m, tracker, Re-ID, género)...", flush=True)
     motor = lap01.MotorLAP01(MODELO, config, device="auto", batch=True)
-    asociador = lap01.crear_asociador(motor, config_camara)
+    reid = lap01.crear_asociador(motor, {"mode": "visual_temporal", "units": "m", "cameras": {"x": {}}}).reid
     print(f"Modelo listo en {motor.device} · GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no'}", flush=True)
+    print("Nada se guarda: todo queda en memoria y se borra al cerrar (Ctrl+C).", flush=True)
     relevo = Relevo(url_web)
+    lectores, nombres, sesion, calentado = {}, {}, None, False
+    revisado, publicado = 0.0, 0.0
     try:
         while True:
-            try:
-                fuente = fuente_telefono(url_web)
-            except OSError as error:
-                print(f"La web no responde en {url_web} ({error}); reintento en 3 s", flush=True)
-                time.sleep(3)
-                continue
-            if not fuente:
-                relevo.estado("sin_fuente", "Pega en la web la URL que muestra la app Cámara ESAN.")
-                time.sleep(2)
-                continue
-            correr_fuente(motor, asociador, config, url_web, relevo, fuente, args.checkpoint)
-            time.sleep(2)
+            if time.monotonic() - revisado > 2:
+                revisado = time.monotonic()
+                try:
+                    lista = {t["id"]: t for t in leer_json(f"{url_web}/api/v1/telefonos")}
+                except OSError as error:
+                    print(f"La web no responde en {url_web} ({error}); reintento en 2 s", flush=True)
+                    lista = None
+                if lista is not None:
+                    for cid in [c for c in lectores if c not in lista or lista[c]["url"] != lectores[c].url]:
+                        lectores.pop(cid).detener()
+                    for cid, telefono in lista.items():
+                        if cid not in lectores:
+                            lectores[cid] = LectorMjpeg(telefono["url"])
+                    nombres = {cid: t["nombre"] for cid, t in lista.items()}
+                    clave = sorted((cid, lector.url) for cid, lector in lectores.items())
+                    if (sesion.clave if sesion else []) != clave:
+                        sesion = SesionEnMemoria(motor, reid, asociacion, sorted(lectores), clave) if lectores else None
+                        print(f"Sesión en memoria con {len(lectores)} teléfono(s): {', '.join(nombres.values()) or 'ninguno'}", flush=True)
+
+            datos = {}
+            if sesion is not None:
+                for cid in sesion.telefonos:
+                    dato = lectores[cid].tomar(sesion.ultimo[cid])
+                    if dato is not None:
+                        datos[cid] = dato
+            if datos:
+                if not calentado:
+                    motor.calentar({cid: d[1] for cid, d in datos.items()})
+                    calentado = True
+                filas = sesion.procesar(datos)
+                for cid, (_, frame, _) in datos.items():
+                    relevo.video(cid, frame)
+                    relevo.detecciones(cid, {"ts": time.time(), "frame_w": ANCHO_RELEVO,
+                                             "frame_h": round(frame.shape[0] * ANCHO_RELEVO / frame.shape[1]),
+                                             "people": personas_para_web(filas[cid], frame.shape[1])})
+            else:
+                time.sleep(0.003)
+
+            if time.monotonic() - publicado > 0.5:
+                publicado = time.monotonic()
+                telefonos = {}
+                for cid, lector in lectores.items():
+                    estado = lector.estado
+                    telefonos[cid] = {"nombre": nombres.get(cid, cid), "fuente": sin_token(lector.url), "estado": estado,
+                                      "mensaje": lector.error if estado == "sin_conexion" else None}
+                    if estado == "procesando" and sesion is not None:
+                        telefonos[cid].update(fps=sesion.fps(cid), saltados=sesion.saltados[cid], personas_ahora=sesion.personas[cid],
+                                              latencia_ms=round(1000 * float(np.median(sesion.latencias[cid])), 0) if sesion.latencias[cid] else None)
+                relevo.estado({"estado": "procesando" if lectores else "sin_telefonos", "dispositivo": motor.device,
+                               "telefonos": telefonos, **(sesion.resumen() if sesion is not None else {})})
     except KeyboardInterrupt:
-        print("Detenido.", flush=True)
+        print("Detenido. Lo procesado se descarta (no se guardó nada).", flush=True)
     finally:
-        relevo.estado("detenido", "El servicio del modelo está detenido.")
+        for lector in lectores.values():
+            lector.detener()
+        relevo.estado({"estado": "detenido", "telefonos": {}})
         relevo.cerrar()
 
 

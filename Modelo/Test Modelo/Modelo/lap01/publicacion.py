@@ -1,4 +1,4 @@
-"""LAP01 · Publicación de una sesión del modelo en la base de datos de la web (POST /api/v1/esan/sessions)."""
+"""LAP01 · Publicación de una sesión del modelo en la base de datos de la web (POST /api/v1/sites/<sitio>/sessions)."""
 import hashlib
 import json
 import math
@@ -106,10 +106,10 @@ def sesion_para_bd(resultado, *, nombre, kind="BUILD", status="DONE", mapa=None,
     }
 
 
-def publicar_sesion(carga, url_web="http://localhost:8080", timeout=120):
-    """Envía la sesión a la web; devuelve la respuesta del backend (identidades, puntos y ms que tardó)."""
+def publicar_sesion(carga, url_web="http://127.0.0.1:8080", sitio="esan", timeout=120):
+    """Envía la sesión al sitio indicado de la web; devuelve la respuesta del backend (identidades, puntos y ms)."""
     cuerpo = json.dumps(carga, ensure_ascii=False, default=str).encode("utf-8")
-    peticion = urllib.request.Request(f"{url_web.rstrip('/')}/api/v1/esan/sessions", data=cuerpo, method="POST",
+    peticion = urllib.request.Request(f"{url_web.rstrip('/')}/api/v1/sites/{sitio}/sessions", data=cuerpo, method="POST",
                                       headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(peticion, timeout=timeout) as respuesta:

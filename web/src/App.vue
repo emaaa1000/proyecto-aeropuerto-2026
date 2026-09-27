@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { useRoute } from "vue-router";
-import { useRouter } from "vue-router";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { logout } from "./core/auth";
+import { recordarSitio, ultimoSitio, useSitios } from "./features/sitios/useSitios";
+
 const route = useRoute();
 const router = useRouter();
+const { sitios, slug, actual, recargar } = useSitios();
 
-const theme = ref<"light" | "dark">(
-  (document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light",
-);
+const SECCIONES = [
+  { id: "en-vivo", nombre: "En vivo", icono: "⌖" },
+  { id: "insights", nombre: "Insights", icono: "▥" },
+  { id: "configuracion", nombre: "Configuración", icono: "◇" },
+];
+
+const theme = ref<"light" | "dark">((document.documentElement.getAttribute("data-theme") as "light" | "dark") || "light");
 function toggleTheme() {
   theme.value = theme.value === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", theme.value);
@@ -17,61 +24,56 @@ function toggleTheme() {
     /* localStorage puede estar bloqueado (modo privado); el tema no persiste. */
   }
 }
-const esan = computed(() => route.path.endsWith("/esan") || route.path === "/telefono");
-const seccion = computed(() => ["/mapa", "/insights", "/configuracion"].find((s) => route.path.startsWith(s)) ?? "");
+
+const seccion = computed(() => (route.meta.seccion as string | undefined) ?? "");
+const sitioNav = computed(() => slug.value || ultimoSitio());
+const telefonos = computed(() => route.path === "/telefonos");
 const title = computed(() => {
-  if (route.path === "/telefono") return "Cámara del teléfono · modelo final";
-  const sitio = esan.value ? "ESAN" : "LAP";
-  if (seccion.value === "/configuracion")
-    return esan.value ? "ESAN · Plano, cámaras y zonas" : route.path === "/configuracion/tiendas" ? "Tiendas y locales comerciales" : "Cámaras y zonas del terminal";
-  if (seccion.value === "/insights") return `${sitio} · Insights`;
-  return `${sitio} · En vivo`;
+  if (telefonos.value) return "Cámaras de teléfono · modelo final";
+  const nombre = SECCIONES.find((s) => s.id === seccion.value)?.nombre ?? "";
+  return `${actual.value?.name ?? slug.value} · ${nombre}`;
 });
 
-function logout() {
-  localStorage.removeItem("lap-session");
+function salir() {
+  logout();
   router.replace("/login");
 }
+
+watch(slug, (s) => s && recordarSitio(s), { immediate: true });
+onMounted(recargar);
 </script>
+
 <template>
   <div v-if="route.path === '/login'"><RouterView /></div>
   <div v-else class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="/configuracion"
-        ><span class="brand-icon">✈</span
-        ><span>LAP<small>LIMA AIRPORT PARTNERS</small></span></a
+      <RouterLink class="brand" to="/"
+        ><span class="brand-icon">✈</span><span>LAP<small>LIMA AIRPORT PARTNERS</small></span></RouterLink
       >
       <div class="airport-switch">
         <span class="airport-symbol">⌖</span>
-        <div v-if="esan"><b>ESAN</b><small>Lima, Perú · 3 cámaras · plano en metros</small></div>
-        <div v-else><b>Jorge Chávez</b><small>LIM · Lima, Perú · Nivel 3</small></div>
+        <div v-if="telefonos"><b>Teléfonos</b><small>Modelo final en vivo · nada se guarda</small></div>
+        <div v-else>
+          <b>{{ actual?.name ?? slug }}</b
+          ><small>{{ actual ? `${actual.description || "Sitio"} · ${actual.cameras} cámaras` : "Cargando sitio…" }}</small>
+        </div>
       </div>
       <p class="nav-caption">ESPACIO DE TRABAJO</p>
       <nav aria-label="Navegación principal">
-        <RouterLink :to="esan ? '/mapa/esan' : '/mapa'" :class="{ 'router-link-active': seccion === '/mapa' }"
-          ><span>⌖</span
-          ><span class="nav-label"><b class="nav-step">1.</b>En vivo</span
-          ></RouterLink
-        ><RouterLink :to="esan ? '/insights/esan' : '/insights'" :class="{ 'router-link-active': seccion === '/insights' }"
-          ><span>▥</span
-          ><span class="nav-label"><b class="nav-step">2.</b>Insights</span
-          ></RouterLink
-        ><RouterLink :to="esan ? '/configuracion/esan' : '/configuracion'" :class="{ 'router-link-active': seccion === '/configuracion' }"
-          ><span>◇</span
-          ><span class="nav-label"
-            ><b class="nav-step">3.</b>Configuración</span
-          ></RouterLink
-        ><RouterLink to="/telefono"
-          ><span>📱</span
-          ><span class="nav-label"><b class="nav-step">4.</b>Cámara del teléfono</span
-          ></RouterLink
+        <RouterLink
+          v-for="(s, i) in SECCIONES"
+          :key="s.id"
+          :to="`/sitios/${sitioNav}/${s.id}`"
+          :class="{ 'router-link-active': seccion === s.id }"
+          ><span>{{ s.icono }}</span><span class="nav-label"><b class="nav-step">{{ i + 1 }}.</b>{{ s.nombre }}</span></RouterLink
+        ><RouterLink to="/telefonos"
+          ><span>📱</span><span class="nav-label"><b class="nav-step">4.</b>Teléfonos</span></RouterLink
         >
       </nav>
       <div class="sidebar-bottom">
         <span class="demo-indicator"></span>
         <div>
-          <b>{{ esan ? "Modelo LAP01" : "Entorno de demostración" }}</b
-          ><small>{{ esan ? "Resultados reales guardados en la base" : "Personas y recorridos simulados" }}</small>
+          <b>Modelo LAP01</b><small>{{ telefonos ? "Procesamiento en memoria" : "Resultados reales guardados en la base" }}</small>
         </div>
       </div>
     </aside>
@@ -83,25 +85,27 @@ function logout() {
           <button
             class="theme-toggle"
             type="button"
-            @click="toggleTheme"
             :aria-label="theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'"
             :title="theme === 'dark' ? 'Modo claro' : 'Modo oscuro'"
-          >{{ theme === "dark" ? "☀" : "☾" }}</button>
+            @click="toggleTheme"
+          >
+            {{ theme === "dark" ? "☀" : "☾" }}
+          </button>
           <span class="avatar" title="Sesión LAP">LAP</span>
-          <button class="logout-button" type="button" @click="logout">Salir</button>
+          <button class="logout-button" type="button" @click="salir">Salir</button>
         </div>
       </header>
       <main>
-        <nav v-if="seccion" class="config-tabs sitio-tabs" aria-label="Sitio">
-          <RouterLink :to="seccion" :class="{ activo: !esan }">LAP · Jorge Chávez</RouterLink>
-          <RouterLink :to="seccion + '/esan'" :class="{ activo: esan }">ESAN</RouterLink>
+        <nav v-if="seccion && sitios.length" class="config-tabs sitio-tabs" aria-label="Sitio">
+          <RouterLink v-for="s in sitios" :key="s.slug" :to="`/sitios/${s.slug}/${seccion}`" :class="{ activo: s.slug === slug }">{{
+            s.name
+          }}</RouterLink>
         </nav>
-        <RouterView />
+        <RouterView :key="`${slug}:${seccion}`" />
       </main>
       <footer>
-        <span v-if="esan || route.path === '/telefono'">ESAN · modelo LAP01 (YOLO26m + tracking + Re-ID + mapa 2D)</span
-        ><span v-else>Lima Airport Partners · Aeropuerto Internacional Jorge Chávez</span
-        ><span>{{ esan || route.path === '/telefono' ? "Datos del modelo guardados en PostgreSQL/PostGIS" : "Plano local · Demostración sin conexión a CCTV" }}</span>
+        <span>Modelo LAP01 · YOLO26m + tracking + Re-ID + mapa 2D</span
+        ><span>{{ telefonos ? "Teléfonos: nada se guarda, todo vive en memoria" : "Datos del modelo en PostgreSQL/PostGIS" }}</span>
       </footer>
     </div>
   </div>
@@ -111,9 +115,5 @@ function logout() {
 .sitio-tabs a.activo {
   color: white;
   background: var(--blue-600);
-}
-.sitio-tabs a.router-link-exact-active:not(.activo) {
-  color: var(--ink-soft);
-  background: rgba(191, 230, 255, 0.35);
 }
 </style>

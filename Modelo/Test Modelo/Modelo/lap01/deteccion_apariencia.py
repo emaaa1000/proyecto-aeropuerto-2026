@@ -2,7 +2,6 @@
 from pathlib import Path
 import hashlib
 import heapq
-import importlib.metadata
 import json
 import math
 import time
@@ -121,11 +120,6 @@ def _unidad_por_region(colours):
         block = colours[:, region]
         unit[:, region] = block / (np.linalg.norm(block, axis=1, keepdims=True) + 1e-8)
     return unit
-
-
-def colour_similarity(first, second):
-    """Similitud de color por regiones entre dos firmas."""
-    return float((_unidad_por_region(first)[0] * _PESOS_COLOR) @ _unidad_por_region(second)[0])
 
 
 class ExtractorResNet18:

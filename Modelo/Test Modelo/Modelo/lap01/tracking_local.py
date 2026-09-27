@@ -2,7 +2,6 @@
 from pathlib import Path
 import hashlib
 import heapq
-import importlib.metadata
 import json
 import math
 import time

@@ -3,7 +3,6 @@ from pathlib import Path
 import bisect
 import hashlib
 import heapq
-import importlib.metadata
 import json
 import math
 import threading

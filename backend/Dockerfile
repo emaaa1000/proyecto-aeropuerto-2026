@@ -3,7 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go test ./... && CGO_ENABLED=0 go build -o /server .
+RUN go vet ./... && go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server ./cmd/api
 FROM alpine:3.22
 RUN adduser -D -u 10001 app
 USER app

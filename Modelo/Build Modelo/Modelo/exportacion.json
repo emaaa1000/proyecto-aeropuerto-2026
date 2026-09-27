@@ -11,7 +11,7 @@
     "lap01/deteccion_apariencia.py": "b23c824b3be3ea8a3eaba6f602d1875c28be8d6d750b8d3f70bbe414a3711697",
     "lap01/mapa_2d.py": "6bcc661a3f811395b0009ed8abde92d07cf6043d4669f6eaa5bc43e38c897c5b",
     "lap01/motor.py": "7301e0c749d380f88d0580b916266aed7e84568da005f29c4b4c54c8d59e7586",
-    "lap01/publicacion.py": "314d9bc92e71fee63b3d46fc760922dd56442403d899c80d32ddbe4140865632",
+    "lap01/publicacion.py": "9cfcc3cf456aec1ac3ec1c90d834f41e90f7907ba1e43251df43ad0d59009dff",
     "lap01/tracking_local.py": "0d5f1a1b38e0b5f000dcc22128b097caba251d64a49a96680a919d6c8df8f64e"
   },
   "modo_multicamara": "visual_temporal",

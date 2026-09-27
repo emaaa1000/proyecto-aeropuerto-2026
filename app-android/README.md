@@ -1,15 +1,15 @@
 # Cámara ESAN (Android)
 
-Convierte el teléfono en una **cámara IP**: transmite su cámara como MJPEG por HTTP para que el modelo final (LAP01) la procese en la laptop y la web muestre el tracking en vivo (**Cámara del teléfono**).
+Convierte el teléfono en una **cámara IP**: transmite su cámara como MJPEG por HTTP para que el modelo final (LAP01) la procese en la laptop y la web muestre el tracking en vivo (**Teléfonos**). Se pueden conectar varios teléfonos a la vez y nada de lo procesado se guarda.
 
 ```
-Teléfono (esta app)  ──MJPEG──▶  Modelo/Test Modelo/camara_telefono.py (GPU)  ──WebSocket + BD──▶  web
-http://IP:8080/video?token=…      YOLO26m · tracker · Re-ID · género                                 Cámara del teléfono / Insights
+Teléfono (esta app)  ──MJPEG──▶  Modelo/Test Modelo/camara_telefono.py (GPU)  ──WebSocket──────▶  web
+http://IP:8080/video?token=…      YOLO26m · tracker · Re-ID · género                                 Teléfonos (solo memoria)
 ```
 
 ## Instalar
 
-- Desde la web: **Cámara del teléfono → ⬇ CamaraESAN.apk** (el teléfono debe abrir la web: `https://<IP-de-la-laptop>:8443/telefono`).
+- Desde la web: **Teléfonos → ⬇ CamaraESAN.apk** (el teléfono debe abrir la web: `https://<IP-de-la-laptop>:8443/telefonos`).
 - O por cable: `adb install app/build/outputs/apk/debug/app-debug.apk`.
 
 Android pedirá permitir «instalar apps de origen desconocido» para el navegador. Requiere Android 7.0 o superior.
@@ -18,7 +18,7 @@ Android pedirá permitir «instalar apps de origen desconocido» para el navegad
 
 1. Abre **Cámara ESAN**, concede el permiso de cámara y pulsa **Transmitir**.
 2. La app muestra la URL con su token, por ejemplo `http://192.168.1.50:8080/video?token=ab3k9x2m4q`. **Copiar URL** la pone en el portapapeles.
-3. Pégala en la web: **Cámara del teléfono → Guardar URL**.
+3. Pégala en la web: **Teléfonos → ＋ Agregar teléfono** (uno por cada teléfono).
 4. En la laptop: `python "Modelo/Test Modelo/camara_telefono.py"`.
 
 La pantalla queda encendida mientras transmites; al salir de la app la cámara se libera. **Cambiar cámara** alterna trasera/frontal.

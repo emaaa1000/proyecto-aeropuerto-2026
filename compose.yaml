@@ -18,33 +18,22 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgres://aeropuerto:${DB_PASSWORD:-demo_local_only}@db:5432/aeropuerto?sslmode=disable
+      MEDIA_DIR: /media
     volumes:
-      # Videos/imágenes procesados que sirve /api/esan/video/ (main.go);
-      # no van dentro de la imagen para no inflarla en cada build.
-      - "./Modelo/Build Modelo/Ouput:/Modelo/Ouput:ro"
+      # Archivos que exportó el Build de cada sitio (videos procesados, mapa,
+      # CSV), servidos en /api/v1/sites/<sitio>/media/. No van dentro de la
+      # imagen para no inflarla en cada build.
+      - "./Modelo/Build Modelo/Ouput:/media/esan:ro"
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: [CMD-SHELL, "wget -q -O - http://127.0.0.1:8080/health/live || exit 1"]
+      # Lista cuando también responde PostgreSQL: la web arranca recién entonces.
+      test: [CMD-SHELL, "wget -q -O - http://127.0.0.1:8080/health/ready || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 12
       start_period: 10s
-    restart: unless-stopped
-  inference:
-    build: ./inference
-    environment:
-      # Cada cuántos segundos se analiza un frame por cámara. Medido en la
-      # propia máquina (sin GPU): YOLO26m ~0.5s + clip_genero ~0.1s/persona
-      # ya con el modelo caliente, así que 1s deja margen sin acumular
-      # atraso. No da para 30fps (eso requeriría GPU o modelos más chicos).
-      PROCESS_INTERVAL_S: "1.0"
-    volumes:
-      - "./Modelo/Test Modelo/Modelo:/Modelo/Modelo:ro"
-    depends_on:
-      backend:
-        condition: service_healthy
     restart: unless-stopped
   web:
     build: ./web
