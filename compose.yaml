@@ -21,7 +21,7 @@ services:
     volumes:
       # Videos/imágenes procesados que sirve /api/esan/video/ (main.go);
       # no van dentro de la imagen para no inflarla en cada build.
-      - ./Modelo/Ouput:/Modelo/Ouput:ro
+      - "./Modelo/Build Modelo/Ouput:/Modelo/Ouput:ro"
     depends_on:
       db:
         condition: service_healthy
@@ -41,7 +41,7 @@ services:
       # atraso. No da para 30fps (eso requeriría GPU o modelos más chicos).
       PROCESS_INTERVAL_S: "1.0"
     volumes:
-      - ./Modelo/Modelo:/Modelo/Modelo:ro
+      - "./Modelo/Test Modelo/Modelo:/Modelo/Modelo:ro"
     depends_on:
       backend:
         condition: service_healthy
