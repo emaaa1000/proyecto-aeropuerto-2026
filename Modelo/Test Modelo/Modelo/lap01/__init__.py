@@ -11,3 +11,4 @@ from .camaras_reid import *
 from .asociacion_multicamara import *
 from .motor import *
 from .mapa_2d import *
+from .publicacion import *

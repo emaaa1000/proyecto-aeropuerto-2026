@@ -115,6 +115,7 @@ func main() {
 	a.localesRoutes(mux)
 	a.replayRoutes(mux)
 	a.relayRoutes(mux)
+	a.esanRoutes(mux)
 	mux.HandleFunc("GET /api/v1/insights/spatial", a.spatial)
 	mux.HandleFunc("GET /api/v1/insights/summary", a.insights)
 	mux.Handle("GET /api/esan/video/", http.StripPrefix("/api/esan/video/", http.FileServer(http.Dir("../Modelo/Ouput"))))

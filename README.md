@@ -16,9 +16,12 @@ Demostración para Lima Airport Partners (Aeropuerto Internacional Jorge Chávez
 docker compose up -d --build
 ```
 
-- **Operación y cámaras:** http://localhost:8080/mapa
-- **Editor:** http://localhost:8080/configuracion
-- **Insights:** http://localhost:8080/insights
+- **En vivo:** http://localhost:8080/mapa (LAP) · http://localhost:8080/mapa/esan (ESAN)
+- **Insights:** http://localhost:8080/insights (LAP) · http://localhost:8080/insights/esan (ESAN)
+- **Configuración:** http://localhost:8080/configuracion (LAP) · http://localhost:8080/configuracion/esan (ESAN)
+- **Cámara del teléfono:** http://localhost:8080/telefono
+
+Cada sección tiene un selector **LAP · Jorge Chávez | ESAN** arriba.
 
 Requiere Docker/Compose. Internet se necesita para descargar imágenes y dependencias inicialmente, no para visualizar el plano una vez construida la aplicación. Los datos se conservan en `aeropuerto-demo_pgdata`. Para detener sin borrarlos: `docker compose stop`.
 
@@ -77,11 +80,13 @@ bash scripts/test-integration.sh
 
 El script usa Docker, crea `aeropuerto_test` y solo limpia las tablas de esa base. Si cambias la contraseña, exporta `DB_PASSWORD` con el mismo valor antes de ejecutarlo. La prueba verifica una visita de 27 segundos, 50% de captación para dos personas, una sola entrada/salida, rechazo de filtros inválidos y censura tras un reinicio.
 
-## Modelo y archivos de demostración
+## Modelo LAP01 (ESAN) y cámara del teléfono
 
-La carpeta `Modelo/` contiene el notebook de multitracking de LAP01, sus configuraciones, pesos locales, videos de entrada y resultados generados. Estos archivos sirven para reproducir y documentar la demostración; la aplicación web continúa consumiendo el histórico almacenado en PostgreSQL descrito en la sección de insights.
+- `Modelo/Build Modelo/Build_Modelo.ipynb` procesa los videos de `Modelo/dataset/` (YOLO26m, tracking, Re-ID multicámara, mapa 2D, género), exporta a `Build Modelo/Ouput/`, publica el modelo en `Modelo/Test Modelo/Modelo/` y **guarda la sesión en PostgreSQL** (`POST /api/v1/esan/sessions`: `analysis_sessions`, `identities`, `tracklets`, `trajectory_points`, más el plano y las cámaras). La web la muestra en En vivo / Insights → ESAN.
+- **Cámara del teléfono:** la app Android de `app-android/` convierte el teléfono en cámara IP (MJPEG con token). `python "Modelo/Test Modelo/camara_telefono.py"` corre el modelo final en la GPU sobre esa URL, publica video y detecciones a la web por WebSocket y guarda la sesión en la base cada 15 s. Sin teléfono: `python "Modelo/Test Modelo/simular_telefono.py"`.
+- `Modelo/LAP01_Multitracking.ipynb` queda como guía del modelo original.
 
-Para abrir el notebook, utiliza un entorno Python con las dependencias de visión por computador correspondientes y ejecuta `Modelo/LAP01_Multitracking.ipynb`. Los archivos de video y pesos pueden requerir espacio considerable.
+API de ESAN: `GET /api/v1/esan/config`, `PUT /api/v1/esan/cameras/{id}`, `POST|PUT|DELETE /api/v1/esan/zones`, `GET|POST /api/v1/esan/sessions`, `GET /api/v1/esan/sessions/{id}/replay`, `GET /api/v1/esan/sessions/{id}/insights`.
 
 ## API
 

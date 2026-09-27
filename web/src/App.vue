@@ -17,17 +17,16 @@ function toggleTheme() {
     /* localStorage puede estar bloqueado (modo privado); el tema no persiste. */
   }
 }
-const title = computed(() =>
-  route.path === "/configuracion"
-    ? "Cámaras y zonas del terminal"
-    : route.path === "/configuracion/tiendas"
-      ? "Tiendas y locales comerciales"
-      : route.path === "/insights"
-        ? "Análisis comercial"
-        : route.path === "/esan"
-          ? "ESAN - Análisis de Flujo"
-          : "Control en vivo",
-);
+const esan = computed(() => route.path.endsWith("/esan") || route.path === "/telefono");
+const seccion = computed(() => ["/mapa", "/insights", "/configuracion"].find((s) => route.path.startsWith(s)) ?? "");
+const title = computed(() => {
+  if (route.path === "/telefono") return "Cámara del teléfono · modelo final";
+  const sitio = esan.value ? "ESAN" : "LAP";
+  if (seccion.value === "/configuracion")
+    return esan.value ? "ESAN · Plano, cámaras y zonas" : route.path === "/configuracion/tiendas" ? "Tiendas y locales comerciales" : "Cámaras y zonas del terminal";
+  if (seccion.value === "/insights") return `${sitio} · Insights`;
+  return `${sitio} · En vivo`;
+});
 
 function logout() {
   localStorage.removeItem("lap-session");
@@ -44,36 +43,35 @@ function logout() {
       >
       <div class="airport-switch">
         <span class="airport-symbol">⌖</span>
-        <div>
-          <b>Jorge Chávez</b><small>LIM · Lima, Perú · Nivel 3</small>
-        </div>
+        <div v-if="esan"><b>ESAN</b><small>Lima, Perú · 3 cámaras · plano en metros</small></div>
+        <div v-else><b>Jorge Chávez</b><small>LIM · Lima, Perú · Nivel 3</small></div>
       </div>
       <p class="nav-caption">ESPACIO DE TRABAJO</p>
       <nav aria-label="Navegación principal">
-        <RouterLink to="/mapa"
+        <RouterLink :to="esan ? '/mapa/esan' : '/mapa'" :class="{ 'router-link-active': seccion === '/mapa' }"
           ><span>⌖</span
           ><span class="nav-label"><b class="nav-step">1.</b>En vivo</span
           ></RouterLink
-        ><RouterLink to="/esan"
-          ><span>📊</span
-          ><span class="nav-label"><b class="nav-step">2.</b>ESAN</span
-          ></RouterLink
-        ><RouterLink to="/insights"
+        ><RouterLink :to="esan ? '/insights/esan' : '/insights'" :class="{ 'router-link-active': seccion === '/insights' }"
           ><span>▥</span
-          ><span class="nav-label"><b class="nav-step">3.</b>Insights</span
+          ><span class="nav-label"><b class="nav-step">2.</b>Insights</span
           ></RouterLink
-        ><RouterLink to="/configuracion"
+        ><RouterLink :to="esan ? '/configuracion/esan' : '/configuracion'" :class="{ 'router-link-active': seccion === '/configuracion' }"
           ><span>◇</span
           ><span class="nav-label"
-            ><b class="nav-step">4.</b>Configuración</span
+            ><b class="nav-step">3.</b>Configuración</span
+          ></RouterLink
+        ><RouterLink to="/telefono"
+          ><span>📱</span
+          ><span class="nav-label"><b class="nav-step">4.</b>Cámara del teléfono</span
           ></RouterLink
         >
       </nav>
       <div class="sidebar-bottom">
         <span class="demo-indicator"></span>
         <div>
-          <b>Entorno de demostración</b
-          ><small>Personas y recorridos simulados</small>
+          <b>{{ esan ? "Modelo LAP01" : "Entorno de demostración" }}</b
+          ><small>{{ esan ? "Resultados reales guardados en la base" : "Personas y recorridos simulados" }}</small>
         </div>
       </div>
     </aside>
@@ -93,12 +91,29 @@ function logout() {
           <button class="logout-button" type="button" @click="logout">Salir</button>
         </div>
       </header>
-      <main><RouterView /></main>
+      <main>
+        <nav v-if="seccion" class="config-tabs sitio-tabs" aria-label="Sitio">
+          <RouterLink :to="seccion" :class="{ activo: !esan }">LAP · Jorge Chávez</RouterLink>
+          <RouterLink :to="seccion + '/esan'" :class="{ activo: esan }">ESAN</RouterLink>
+        </nav>
+        <RouterView />
+      </main>
       <footer>
-        <span
-          >Lima Airport Partners · Aeropuerto Internacional Jorge Chávez</span
-        ><span>Plano local · Demostración sin conexión a CCTV</span>
+        <span v-if="esan || route.path === '/telefono'">ESAN · modelo LAP01 (YOLO26m + tracking + Re-ID + mapa 2D)</span
+        ><span v-else>Lima Airport Partners · Aeropuerto Internacional Jorge Chávez</span
+        ><span>{{ esan || route.path === '/telefono' ? "Datos del modelo guardados en PostgreSQL/PostGIS" : "Plano local · Demostración sin conexión a CCTV" }}</span>
       </footer>
     </div>
   </div>
 </template>
+
+<style scoped>
+.sitio-tabs a.activo {
+  color: white;
+  background: var(--blue-600);
+}
+.sitio-tabs a.router-link-exact-active:not(.activo) {
+  color: var(--ink-soft);
+  background: rgba(191, 230, 255, 0.35);
+}
+</style>

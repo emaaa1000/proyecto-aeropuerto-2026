@@ -1,16 +1,17 @@
 {
   "version": "2.0",
-  "fecha": "2026-09-27T00:06:25-05:00",
+  "fecha": "2026-09-27T00:39:57-05:00",
   "notebook": "Build_Modelo.ipynb",
-  "notebook_sha256": "79d69f6e2b8288359b986ca09493210b7a3c90ed4c6b8f72c729801acb25de05",
+  "notebook_sha256": "6e237cc5dac6ca038afe9f54bf6f05192324f90a4cd0893cacdf525815bcfd1f",
   "codigo_sha256": {
-    "lap01/__init__.py": "e0dceb3db135c489b35e3395d6405b2edd69af441dc7a85a918c6f6f849d6656",
+    "lap01/__init__.py": "dbafc6af7af24b8b9014405f0e6a4b94ff8be8d500a4958b5b37260347073c22",
     "lap01/asociacion_multicamara.py": "20408fadaf518aa2968c866781b957210b19dfb58b1e99b8c0b1ea9841ab5977",
     "lap01/camaras_reid.py": "eb1332830dfec656b8b973c7d67b7e00c4301decb8ce94076788aeb3b32f8236",
     "lap01/datos.py": "ba66c63024f626875df3f1d2071e72ceecf8e3b64ab576ca3ab0e11fa9c0170d",
     "lap01/deteccion_apariencia.py": "b23c824b3be3ea8a3eaba6f602d1875c28be8d6d750b8d3f70bbe414a3711697",
     "lap01/mapa_2d.py": "6bcc661a3f811395b0009ed8abde92d07cf6043d4669f6eaa5bc43e38c897c5b",
     "lap01/motor.py": "7301e0c749d380f88d0580b916266aed7e84568da005f29c4b4c54c8d59e7586",
+    "lap01/publicacion.py": "314d9bc92e71fee63b3d46fc760922dd56442403d899c80d32ddbe4140865632",
     "lap01/tracking_local.py": "0d5f1a1b38e0b5f000dcc22128b097caba251d64a49a96680a919d6c8df8f64e"
   },
   "modo_multicamara": "visual_temporal",

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cámara ESAN</string>
+    <string name="transmitir">Transmitir</string>
+    <string name="detener">Detener</string>
+    <string name="cambiar_camara">Cambiar cámara</string>
+    <string name="copiar">Copiar URL</string>
+    <string name="instrucciones">Pega una de estas URLs en la web (ESAN → Cámara del teléfono). El teléfono y la laptop deben estar en la misma red, o el puerto 8080 abierto hacia internet.</string>
+    <string name="estado_detenido">Detenida · pulsa Transmitir</string>
+    <string name="estado_transmitiendo">Transmitiendo · %1$d cliente(s) · %2$d fps · token %3$s</string>
+    <string name="sin_permiso">Sin permiso de cámara: concédelo en Ajustes → Aplicaciones → Cámara ESAN.</string>
+    <string name="sin_red">Sin red: conecta el teléfono a Wi-Fi o activa el punto de acceso.</string>
+    <string name="url_copiada">URL copiada</string>
+    <string name="error_camara">No se pudo abrir la cámara: %1$s</string>
+    <string name="error_puerto">No se pudo abrir el puerto %1$d: %2$s</string>
+</resources>
