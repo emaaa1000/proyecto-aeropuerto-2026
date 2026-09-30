@@ -30,6 +30,8 @@ export type EstadoServicio = {
   genero?: Record<string, number>;
   /** Personas de esta sesión que ya se habían visto antes (la memoria les devolvió su ID). */
   reconocidas?: number;
+  /** Enlace para los teléfonos con la IP de la laptop en la red (lo publica el modelo, que corre en ella). */
+  enlace?: string | null;
   memoria?: { personas: number; persistente: boolean };
   telefonos: Record<string, EstadoTelefono>;
 };

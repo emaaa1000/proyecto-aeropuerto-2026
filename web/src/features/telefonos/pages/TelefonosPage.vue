@@ -29,10 +29,24 @@ const textoEstado = computed(() => {
   const procesando = Object.values(servicio.value?.telefonos ?? {}).filter((t) => t.estado === "procesando").length;
   return { clase: procesando ? "good" : "warn", texto: `Procesando ${procesando} de ${telefonos.value.length} cámaras en ${servicio.value?.dispositivo ?? ""}` };
 });
-// Desde esta misma laptop la IP de la red no se conoce: se indica cuál poner.
-const urlCamara = computed(() =>
-  ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) ? "https://<IP-de-esta-laptop>:8444" : `https://${location.hostname}:8444`,
-);
+// El enlace con la IP real lo publica el modelo (corre en la laptop); si no corre y la web se abrió por la
+// IP de la red, sirve esa; desde localhost la IP no se conoce.
+const urlCamara = computed(() => {
+  if (conectado.value && servicio.value?.enlace) return servicio.value.enlace;
+  return ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) ? null : `https://${location.hostname}:8444`;
+});
+const copiado = ref(false);
+
+async function copiarEnlace() {
+  if (!urlCamara.value) return;
+  try {
+    await navigator.clipboard.writeText(urlCamara.value);
+    copiado.value = true;
+    setTimeout(() => (copiado.value = false), 2000);
+  } catch {
+    // Sin permiso de portapapeles: el enlace sigue a la vista para copiarlo a mano.
+  }
+}
 // camara_telefono.py corre en esta laptop y habla directo con backend-vivo (127.0.0.1:8093).
 const comandoModelo = 'python "Modelo/Test Modelo/camara_telefono.py"';
 const diasMemoria = computed(() => Math.round((memoria.value?.retencion_horas ?? 168) / 24));
@@ -121,6 +135,15 @@ onUnmounted(() => {
     </div>
     <span :class="textoEstado.clase" class="estado-servicio">● {{ textoEstado.texto }}</span>
   </section>
+  <section class="panel enlace">
+    <div>
+      <small class="muted">Enlace para los teléfonos (misma red Wi-Fi que esta laptop)</small>
+      <a v-if="urlCamara" :href="urlCamara" target="_blank" rel="noopener">{{ urlCamara }}</a>
+      <b v-else>https://&lt;IP-de-esta-laptop&gt;:8444</b>
+      <small v-if="!urlCamara" class="muted">Inicia el modelo (paso 2) y aquí aparece con la IP de esta laptop.</small>
+    </div>
+    <button v-if="urlCamara" class="button" type="button" @click="copiarEnlace">{{ copiado ? "✓ Copiado" : "Copiar enlace" }}</button>
+  </section>
   <p v-if="error" class="error" role="alert">{{ error }}</p>
   <p v-if="aviso" class="success">{{ aviso }}</p>
 
@@ -165,7 +188,7 @@ onUnmounted(() => {
       <ol>
         <li>
           <b>En cada dispositivo, abre la cámara web y pulsa «Unirse con la cámara».</b>
-          <code>{{ urlCamara }}</code>
+          <code>{{ urlCamara ?? "https://<IP-de-esta-laptop>:8444" }}</code>
           <small class="muted"
             >Sin instalar nada, desde el navegador y en la misma red Wi-Fi que esta laptop. El navegador advierte del certificado autofirmado:
             <b>Avanzado → Continuar</b>. La cámara aparece sola aquí; hasta 8 a la vez.</small
@@ -175,7 +198,7 @@ onUnmounted(() => {
           <b>Inicia el modelo en la laptop (GPU).</b>
           <code>{{ comandoModelo }}</code>
         </li>
-        <li><b>Mira el tracking aquí.</b> Toca una pantalla para agrandarla. Al cerrar el servicio (Ctrl+C) se descarta todo lo procesado.</li>
+        <li><b>Mira el tracking aquí.</b> Toca una pantalla para agrandarla. Al cerrar el modelo (Ctrl+C) la memoria de identidades queda guardada.</li>
       </ol>
     </aside>
   </div>
@@ -206,6 +229,25 @@ onUnmounted(() => {
 .resumen small {
   font-size: 10px;
   color: var(--ink-soft);
+}
+.enlace {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+.enlace div {
+  display: grid;
+  gap: 2px;
+}
+.enlace a,
+.enlace b {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
 }
 .memoria {
   display: flex;

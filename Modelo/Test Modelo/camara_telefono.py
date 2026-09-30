@@ -7,7 +7,9 @@ No se guarda video ni fotos: solo la apariencia como vectores Re-ID, el género 
 """
 import argparse
 import json
+import math
 import os
+import socket
 import sys
 import threading
 import time
@@ -38,13 +40,29 @@ from memoria_identidades import AsociadorConMemoria, MemoriaIdentidades
 CANAL_ESTADO = "telefonos"
 ANCHO_RELEVO = 640
 FPS_NOMINAL = 15.0
-TRANSICION_MAX_S = 60.0  # como en camaras.json: alguien puede pasar de un teléfono a otro en hasta 60 s
+TRANSICION_MAX_S = 60.0
+PUERTO_CAMARA = int(os.environ.get("CAMARA_PORT", "8444"))  # el de la página de cámara (compose: camara-web)  # como en camaras.json: alguien puede pasar de un teléfono a otro en hasta 60 s
 
 
 def leer_json(url, timeout=5):
     """GET de un JSON de la web."""
     with urllib.request.urlopen(url, timeout=timeout) as respuesta:
         return json.loads(respuesta.read().decode("utf-8"))
+
+
+def enlace_camara():
+    """https://<IP de esta laptop en la red>:8444, el enlace que abren los teléfonos; None sin red.
+
+    El navegador y los contenedores no conocen la IP de la laptop; este proceso sí. La ruta hacia afuera elige la
+    interfaz de la red (Wi-Fi o cable) sin mandar ningún paquete.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sonda:
+            sonda.connect(("8.8.8.8", 80))
+            ip = sonda.getsockname()[0]
+    except OSError:
+        return None
+    return None if ip.startswith(("127.", "0.")) else f"https://{ip}:{PUERTO_CAMARA}"
 
 
 def sin_token(url):
@@ -326,6 +344,7 @@ def main():
     sesion = SesionEnVivo(motor, reid, asociacion, memoria)
     lectores, nombres, calentado = {}, {}, False
     revisado, publicado = 0.0, 0.0
+    enlace, enlace_visto = None, -math.inf
     try:
         while True:
             if time.monotonic() - revisado > 2:
@@ -367,6 +386,8 @@ def main():
 
             if time.monotonic() - publicado > 0.5:
                 publicado = time.monotonic()
+                if publicado - enlace_visto > 10:  # la laptop puede cambiar de red mientras corre
+                    enlace, enlace_visto = enlace_camara(), publicado
                 telefonos = {}
                 for cid, lector in lectores.items():
                     estado = lector.estado
@@ -376,7 +397,7 @@ def main():
                         telefonos[cid].update(fps=sesion.fps(cid), saltados=sesion.saltados[cid], personas_ahora=sesion.personas[cid],
                                               latencia_ms=round(1000 * float(np.median(sesion.latencias[cid])), 0) if sesion.latencias[cid] else None)
                 relevo.estado({"estado": "procesando" if lectores else "sin_telefonos", "dispositivo": motor.device,
-                               "telefonos": telefonos, **sesion.resumen()})
+                               "enlace": enlace, "telefonos": telefonos, **sesion.resumen()})
     except KeyboardInterrupt:
         print("Detenido. La memoria de identidades queda guardada en backend-vivo.", flush=True)
     finally:
