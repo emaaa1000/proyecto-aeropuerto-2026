@@ -52,7 +52,7 @@ onMounted(recargar);
       >
       <div class="airport-switch">
         <span class="airport-symbol">⌖</span>
-        <div v-if="telefonos"><b>Teléfonos</b><small>Modelo final en vivo · nada se guarda</small></div>
+        <div v-if="telefonos"><b>Teléfonos</b><small>Modelo final en vivo · IDs estables</small></div>
         <div v-else>
           <b>{{ actual?.name ?? slug }}</b
           ><small>{{ actual ? `${actual.description || "Sitio"} · ${actual.cameras} cámaras` : "Cargando sitio…" }}</small>
@@ -105,7 +105,7 @@ onMounted(recargar);
       </main>
       <footer>
         <span>Modelo LAP01 · YOLO26m + tracking + Re-ID + mapa 2D</span
-        ><span>{{ telefonos ? "Teléfonos: nada se guarda, todo vive en memoria" : "Datos del modelo en PostgreSQL/PostGIS" }}</span>
+        ><span>{{ telefonos ? "Teléfonos: backend y base propios (backend-vivo), sin video ni fotos" : "Datos del modelo en PostgreSQL/PostGIS" }}</span>
       </footer>
     </div>
   </div>

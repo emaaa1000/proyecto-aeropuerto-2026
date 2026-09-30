@@ -48,7 +48,7 @@ Los datos se conservan en el volumen `aeropuerto-demo_pgdata`. La base se crea v
    Lee de la base los puntos de la sesión, el plano y los locales y zonas configurados. Primero lleva cada posición al **piso transitable**: la que cae fuera del piso o dentro (o a menos de 0,2 m) de un obstáculo pasa al punto libre más cercano, y si dos cámaras promedian dentro de un obstáculo se unen fuera de él; la base guarda la posición ajustada (En vivo e Insights la usan) y conserva la del modelo en `raw_x`/`raw_y`. Después calcula: consolidación de observaciones simultáneas, zona de cada posición (INTERIOR primero, luego la de menor área), eventos espaciales (EXPOSURE, ENTER, DWELL, EXIT, RETURN, QUEUE; una salida o un roce del INTERIOR más corto que la tolerancia de 1 s se trata como ruido del borde), mapa de calor KDE (ocupación y visitantes únicos), rutas frecuentes con PrefixSpan, grafo origen-destino, permanencia, visitas, exposición, tasa de captación, densidad, congestión y las series por intervalo del tablero. Lo publica en `trajectory_points.zone_id`, `spatial_events` y `session_analytics`. Parámetros versionados en `Modelo/Insights Modelo/config_insights.json`; `--exportar` guarda además CSV/JSON en `Insights Modelo/Ouput/<sitio>/`. Vuelve a ejecutarlo cada vez que cambies locales o zonas: Insights avisa cuando el análisis quedó desactualizado.
 4. **Ver resultados (web → En vivo / Insights).** En vivo reproduce la sesión sobre el plano con los videos sincronizados; Insights es un tablero de métricas (mapas de movimiento y de calor, comparación entre zonas, rutas, personas, visitas, exposición, permanencia, captación, densidad, entradas por intervalo y flujos), filtrable por sesión y zona y exportable a PDF y CSV.
 
-**Cámaras de teléfono.** La app Android de `app-android/` convierte cada teléfono en cámara IP (MJPEG con token). En la web se agregan en **Teléfonos** y `python "Modelo/Test Modelo/camara_telefono.py"` corre el modelo final en la GPU sobre todos a la vez, con un mismo ID por persona entre teléfonos. **No se guarda nada**: todo vive en memoria y se borra al cerrar el servicio. Sin teléfono: `python "Modelo/Test Modelo/simular_telefono.py"`.
+**Cámaras en vivo (separadas del demo).** Tienen su propio backend (`backend-vivo/`) y su propia base (`vivo-db`, PostgreSQL + pgvector); los sitios LAP y ESAN siguen en el backend y la base de siempre. `app-web/` convierte el navegador de cualquier teléfono en cámara, sin instalar nada: se abre `https://<IP-de-la-laptop>:8444`, se pulsa **Unirse con la cámara** y la cámara se registra sola en **Teléfonos**, que muestra todas las pantallas conectadas con el proceso del modelo (cajas, ID, género, personas, fps y latencia). `python "Modelo/Test Modelo/camara_telefono.py"` corre el modelo final en la GPU sobre todas a la vez y guarda una **memoria de identidades**: cada persona conserva su ID (y su color y género) aunque salga y vuelva, pase a otro teléfono o el modelo se reinicie. Se guarda solo su apariencia como vectores Re-ID, su género y cuándo y dónde se vio (nada de video ni fotos); se borra sola tras 7 días sin verla o con **Olvidar a todos** en Teléfonos. Detalles en [backend-vivo/README.md](backend-vivo/README.md) y [app-web/README.md](app-web/README.md).
 
 ## Estructura
 
@@ -74,7 +74,10 @@ Modelo/Build Modelo/          Partes I y II: construcción del modelo y publicac
   plano_esan/                 levantamiento del piso de ESAN y zonas iniciales
 Modelo/Test Modelo/           modelo publicado, prueba en tiempo real y teléfonos
 Modelo/Insights Modelo/       Parte III: procesamiento histórico (paquete historico/)
-app-android/                  app Cámara ESAN
+backend-vivo/                 Go · backend de las cámaras en vivo: teléfonos, relevo y memoria de identidades
+  migrations/                 esquema de su base propia (pgvector)
+app-web/                      Cámara ESAN desde el navegador (Go, página sin build)
+Modelo/Test Modelo/memoria_identidades.py   IDs estables: memoria de largo plazo sobre el asociador LAP01
 ```
 
 ## API
@@ -107,7 +110,10 @@ PostgreSQL 17 + PostGIS, coordenadas del plano en metros (SRID 0), tiempos con z
 bash scripts/test-integration.sh                                 # backend: unitarias + integración con PostGIS
 cd web && npm ci && npm run build                                # web: tipos (vue-tsc) y build
 python -m unittest discover -s "Modelo/Insights Modelo/tests"    # Parte III con trayectorias sintéticas
+python -m unittest discover -s "Modelo/Test Modelo/tests"        # memoria de identidades con personas sintéticas
 ```
+
+`backend-vivo` y `app-web` ejecutan `go vet` y `go test` al construir su imagen; la prueba de `backend-vivo` contra PostgreSQL + pgvector reales corre con `VIVO_TEST_DATABASE_URL` apuntando a una base desechable (ver [backend-vivo/README.md](backend-vivo/README.md)).
 
 El Dockerfile del backend ejecuta `go vet` y `go test` al construir. La prueba de integración crea una base `aeropuerto_test` desechable (se borra al terminar) y recorre el ciclo completo: sitios, importación de sesiones, cámaras con pose manual, locales, zonas, Parte III y archivos.
 

@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { wsUrl } from "../../../core/http";
 import { colorPersona } from "../../../shared/format";
-import type { EstadoTelefono } from "../api";
+import { RELEVO_VIVO, type EstadoTelefono } from "../api";
 
 type Persona = {
   id: number;
@@ -56,7 +56,8 @@ function dibujar() {
     ctx.strokeStyle = color;
     ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
     const genero = p.gender ? ` · ${p.gender}${p.gender_conf ? " " + Math.round(p.gender_conf * 100) + "%" : ""}` : "";
-    const texto = `${p.global_id != null ? "G" + p.global_id : "L" + p.local_id}${genero}`;
+    // Sin ID todavía (se está identificando): «…», no el número local, que parecía otro ID.
+    const texto = `${p.global_id != null ? "G" + p.global_id : "…"}${genero}`;
     const ancho = ctx.measureText(texto).width + 10;
     const y = Math.max(18, y1);
     ctx.fillStyle = "rgba(10, 20, 35, 0.82)";
@@ -103,8 +104,8 @@ function alDetecciones(ev: MessageEvent) {
 watch(imagen, () => requestAnimationFrame(dibujar));
 
 onMounted(() => {
-  video = conectar(`/api/v1/cameras/${props.id}/watch`, true, alVideo);
-  detecciones = conectar(`/api/v1/cameras/${props.id}/detections/watch`, false, alDetecciones);
+  video = conectar(`${RELEVO_VIVO}/${props.id}/watch`, true, alVideo);
+  detecciones = conectar(`${RELEVO_VIVO}/${props.id}/detections/watch`, false, alDetecciones);
   reloj = setInterval(() => (ahora.value = Date.now()), 1000);
 });
 

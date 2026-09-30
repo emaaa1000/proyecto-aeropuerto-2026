@@ -1,4 +1,10 @@
-import { json, request } from "../../core/http";
+import { request } from "../../core/http";
+
+// Las cámaras en vivo tienen su propio backend (backend-vivo), separado del de los
+// sitios LAP y ESAN; nginx lo expone en /vivo/.
+const VIVO = "/vivo/api/v1";
+/** Relevo de video y detecciones de las cámaras en vivo (WebSocket). */
+export const RELEVO_VIVO = `${VIVO}/cameras`;
 
 export type Telefono = { id: string; nombre: string; url: string };
 
@@ -22,11 +28,31 @@ export type EstadoServicio = {
   personas_total?: number;
   multitelefono?: number;
   genero?: Record<string, number>;
+  /** Personas de esta sesión que ya se habían visto antes (la memoria les devolvió su ID). */
+  reconocidas?: number;
+  memoria?: { personas: number; persistente: boolean };
   telefonos: Record<string, EstadoTelefono>;
 };
 
+/** Memoria de identidades de backend-vivo (sin vectores). */
+export type ResumenMemoria = { personas: number; vistas: number; siguiente_id: number; epoca: number; retencion_horas: number };
+
+/** Una persona en las detecciones que el modelo publica por cámara. */
+export type PersonaDetectada = {
+  id: number;
+  global_id: number | null;
+  local_id: number;
+  box: [number, number, number, number];
+  conf: number;
+  gender: string | null;
+  gender_conf: number | null;
+};
+
+export type Detecciones = { ts: number; frame_w: number; frame_h: number; people: PersonaDetectada[] };
+
 export const api = {
-  telefonos: () => request<Telefono[]>("/api/v1/telefonos"),
-  agregar: (datos: { nombre: string; url: string }) => request<Telefono>("/api/v1/telefonos", json("POST", datos)),
-  quitar: (id: string) => request<void>(`/api/v1/telefonos/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  telefonos: () => request<Telefono[]>(`${VIVO}/telefonos`),
+  quitar: (id: string) => request<void>(`${VIVO}/telefonos/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  memoria: () => request<ResumenMemoria>(`${VIVO}/personas/resumen`),
+  olvidarTodas: () => request<{ borradas: number }>(`${VIVO}/personas`, { method: "DELETE" }),
 };

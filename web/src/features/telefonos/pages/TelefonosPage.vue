@@ -2,11 +2,15 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { wsUrl } from "../../../core/http";
 import { segundos } from "../../../shared/format";
-import { api, type EstadoServicio, type Telefono } from "../api";
+import { api, RELEVO_VIVO, type EstadoServicio, type ResumenMemoria, type Telefono } from "../api";
+import SalaTelefonos from "../components/SalaTelefonos.vue";
 import VistaTelefono from "../components/VistaTelefono.vue";
 
 const telefonos = ref<Telefono[]>([]);
-const nuevo = ref({ nombre: "", url: "" });
+const memoria = ref<ResumenMemoria>();
+const olvidando = ref(false);
+// La sala del servicio de cámara web; sin él, cada cámara en su propio panel.
+const salaDisponible = ref(false);
 const error = ref("");
 const aviso = ref("");
 const servicio = ref<EstadoServicio>();
@@ -20,11 +24,18 @@ let activo = true;
 
 const conectado = computed(() => ahora.value - ultimoEstado.value < 6000 && servicio.value?.estado !== "detenido");
 const textoEstado = computed(() => {
-  if (!conectado.value) return { clase: "warn", texto: "El servicio del modelo no está corriendo (paso 3)." };
-  if (servicio.value?.estado === "sin_telefonos") return { clase: "warn", texto: "Servicio listo: agrega un teléfono (paso 2)." };
+  if (!conectado.value) return { clase: "warn", texto: "El servicio del modelo no está corriendo (paso 2)." };
+  if (servicio.value?.estado === "sin_telefonos") return { clase: "warn", texto: "Servicio listo: une una cámara (paso 1)." };
   const procesando = Object.values(servicio.value?.telefonos ?? {}).filter((t) => t.estado === "procesando").length;
-  return { clase: procesando ? "good" : "warn", texto: `Procesando ${procesando} de ${telefonos.value.length} teléfonos en ${servicio.value?.dispositivo ?? ""}` };
+  return { clase: procesando ? "good" : "warn", texto: `Procesando ${procesando} de ${telefonos.value.length} cámaras en ${servicio.value?.dispositivo ?? ""}` };
 });
+// Desde esta misma laptop la IP de la red no se conoce: se indica cuál poner.
+const urlCamara = computed(() =>
+  ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) ? "https://<IP-de-esta-laptop>:8444" : `https://${location.hostname}:8444`,
+);
+// camara_telefono.py corre en esta laptop y habla directo con backend-vivo (127.0.0.1:8093).
+const comandoModelo = 'python "Modelo/Test Modelo/camara_telefono.py"';
+const diasMemoria = computed(() => Math.round((memoria.value?.retencion_horas ?? 168) / 24));
 const generos = computed(() => {
   const g = servicio.value?.genero ?? {};
   return { hombres: g["Hombre"] ?? 0, mujeres: g["Mujer"] ?? 0, otros: g["Sin determinar"] ?? 0 };
@@ -32,25 +43,28 @@ const generos = computed(() => {
 
 async function cargar() {
   try {
-    telefonos.value = await api.telefonos();
+    [telefonos.value, memoria.value] = await Promise.all([api.telefonos(), api.memoria()]);
   } catch (e) {
     error.value = (e as Error).message;
   }
 }
 
-async function agregar() {
+async function olvidarTodas() {
+  if (!window.confirm("¿Olvidar a todas las personas? Sus IDs se borran y la numeración vuelve a empezar en 1.")) return;
   error.value = aviso.value = "";
+  olvidando.value = true;
   try {
-    const t = await api.agregar({ nombre: nuevo.value.nombre.trim(), url: nuevo.value.url.trim() });
-    aviso.value = `${t.nombre} agregado: el servicio del modelo lo toma en unos segundos.`;
-    nuevo.value = { nombre: "", url: "" };
+    const { borradas } = await api.olvidarTodas();
+    aviso.value = `Memoria vaciada: ${borradas} ${borradas === 1 ? "persona olvidada" : "personas olvidadas"}.`;
     await cargar();
   } catch (e) {
     error.value = (e as Error).message;
+  } finally {
+    olvidando.value = false;
   }
 }
 
-async function quitar(t: Telefono) {
+async function quitar(t: { id: string; nombre: string }) {
   error.value = aviso.value = "";
   try {
     await api.quitar(t.id);
@@ -62,7 +76,7 @@ async function quitar(t: Telefono) {
 }
 
 function escucharServicio() {
-  socket = new WebSocket(wsUrl("/api/v1/cameras/telefonos/detections/watch"));
+  socket = new WebSocket(wsUrl(`${RELEVO_VIVO}/telefonos/detections/watch`));
   socket.addEventListener("message", (ev) => {
     try {
       servicio.value = JSON.parse(ev.data as string) as EstadoServicio;
@@ -99,8 +113,10 @@ onUnmounted(() => {
       <p class="eyebrow">MODELO FINAL · CÁMARAS DE TELÉFONO</p>
       <h1>Tracking en vivo con tus teléfonos</h1>
       <p>
-        Cada teléfono con la app es una cámara IP; el modelo final (YOLO26m + tracker + Re-ID + género) corre en la GPU de esta laptop sobre todos a la
-        vez, con un mismo ID por persona entre teléfonos. <b>No se guarda nada</b>: todo vive en memoria y se borra al cerrar el servicio.
+        Cualquier teléfono, tablet o laptop se une como cámara desde su navegador; el modelo final (YOLO26m + tracker + Re-ID + género) corre en la GPU
+        de esta laptop sobre todas a la vez, con un mismo ID por persona entre cámaras. Cada persona <b>conserva su ID</b> (y su color y género)
+        aunque salga y vuelva o cambie de cámara: el modelo guarda su apariencia como vectores (sin video ni fotos) en la base de las cámaras en
+        vivo, separada de la de los sitios, y la olvida tras {{ diasMemoria }} días sin verla.
       </p>
     </div>
     <span :class="textoEstado.clase" class="estado-servicio">● {{ textoEstado.texto }}</span>
@@ -114,11 +130,23 @@ onUnmounted(() => {
     <div><b>{{ generos.hombres }}</b><small>hombres</small></div>
     <div><b>{{ generos.mujeres }}</b><small>mujeres</small></div>
     <div><b>{{ generos.otros }}</b><small>sin determinar</small></div>
-    <div><b>{{ segundos(servicio.segundos) }}</b><small>en memoria</small></div>
+    <div><b>{{ servicio.reconocidas ?? 0 }}</b><small>ya vistas antes</small></div>
+    <div><b>{{ segundos(servicio.segundos) }}</b><small>en sesión</small></div>
   </div>
+  <p v-if="memoria" class="memoria muted">
+    Memoria de identidades: <b>{{ memoria.personas }}</b> {{ memoria.personas === 1 ? "persona" : "personas" }} (próximo ID
+    {{ memoria.siguiente_id }}); se borran solas tras {{ diasMemoria }} días sin verse.
+    <button class="danger-button" type="button" :disabled="olvidando || !memoria.personas" @click="olvidarTodas">Olvidar a todos</button>
+  </p>
 
-  <div class="telefono">
-    <div class="vistas" :class="{ varias: telefonos.length > 1 }">
+  <div class="telefono" :class="{ 'con-sala': salaDisponible }">
+    <SalaTelefonos
+      v-show="salaDisponible"
+      :servicio="conectado ? servicio : undefined"
+      @disponible="salaDisponible = $event"
+      @quitar="quitar"
+    />
+    <div v-if="!salaDisponible" class="vistas" :class="{ varias: telefonos.length > 1 }">
       <VistaTelefono
         v-for="t in telefonos"
         :id="t.id"
@@ -128,34 +156,26 @@ onUnmounted(() => {
         @quitar="quitar(t)"
       />
       <section v-if="!telefonos.length" class="panel vacio">
-        <p>Sin teléfonos todavía. Sigue los pasos de «Cómo conectarlos».</p>
+        <p>Sin cámaras todavía. Sigue los pasos de «Cómo conectarlas».</p>
       </section>
     </div>
 
     <aside class="panel pasos">
-      <div class="panel-heading"><h2>Cómo conectarlos</h2></div>
+      <div class="panel-heading"><h2>Cómo conectarlas</h2></div>
       <ol>
         <li>
-          <b>Instala la app en cada teléfono Android.</b>
-          <a class="button" href="/descargas/CamaraESAN.apk" download>⬇ CamaraESAN.apk</a>
-          <small class="muted">Ábrela, concede la cámara y pulsa <b>Transmitir</b>. Teléfonos y laptop en la misma red Wi-Fi.</small>
-        </li>
-        <li>
-          <b>Agrega cada teléfono con la URL que muestra su app.</b>
-          <input v-model="nuevo.nombre" maxlength="40" placeholder="Nombre (opcional), ej. Entrada" />
-          <input v-model="nuevo.url" placeholder="http://192.168.1.50:8080/video?token=…" @keyup.enter="agregar" />
-          <button class="primary-button" type="button" :disabled="!nuevo.url.trim()" @click="agregar">＋ Agregar teléfono</button>
-          <small class="muted">Hasta 8 teléfonos. La lista vive en la memoria del backend: si se reinicia, vuelve a agregarlos.</small>
+          <b>En cada dispositivo, abre la cámara web y pulsa «Unirse con la cámara».</b>
+          <code>{{ urlCamara }}</code>
+          <small class="muted"
+            >Sin instalar nada, desde el navegador y en la misma red Wi-Fi que esta laptop. El navegador advierte del certificado autofirmado:
+            <b>Avanzado → Continuar</b>. La cámara aparece sola aquí; hasta 8 a la vez.</small
+          >
         </li>
         <li>
           <b>Inicia el modelo en la laptop (GPU).</b>
-          <code>python "Modelo/Test Modelo/camara_telefono.py"</code>
-          <small class="muted"
-            >Sin teléfono a mano: <code>python "Modelo/Test Modelo/simular_telefono.py"</code> y la URL
-            <code>http://127.0.0.1:8090/video?token=prueba</code>.</small
-          >
+          <code>{{ comandoModelo }}</code>
         </li>
-        <li><b>Mira el tracking aquí.</b> Al cerrar el servicio (Ctrl+C) se descarta todo lo procesado.</li>
+        <li><b>Mira el tracking aquí.</b> Toca una pantalla para agrandarla. Al cerrar el servicio (Ctrl+C) se descarta todo lo procesado.</li>
       </ol>
     </aside>
   </div>
@@ -167,7 +187,7 @@ onUnmounted(() => {
 }
 .resumen {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
   padding: 10px;
   margin-bottom: 14px;
@@ -187,11 +207,29 @@ onUnmounted(() => {
   font-size: 10px;
   color: var(--ink-soft);
 }
+.memoria {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+.memoria button {
+  margin-left: auto;
+}
 .telefono {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: 14px;
   align-items: start;
+}
+/* Con la sala, las cámaras ocupan todo el ancho y los pasos van debajo. */
+.telefono.con-sala {
+  grid-template-columns: minmax(0, 1fr);
+}
+.con-sala .pasos ol {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .vistas {
   display: grid;
@@ -225,7 +263,8 @@ onUnmounted(() => {
 }
 @media (max-width: 1100px) {
   .telefono,
-  .vistas.varias {
+  .vistas.varias,
+  .con-sala .pasos ol {
     grid-template-columns: 1fr;
   }
   .resumen {
